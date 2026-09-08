@@ -14,9 +14,8 @@ import {
   Ratio,
   SlidersHorizontal,
   X,
-  Eye,
-  Info,
 } from "lucide-react";
+import { TemplatedEditor } from "@/components/TemplatedEditor";
 
 interface LayerMappings {
   headline_layer: string;
@@ -45,7 +44,7 @@ export default function TemplatesPage() {
   const [activeEmbedTemplateId, setActiveEmbedTemplateId] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
 
-  // Form State for creating/editing template
+  // Form State for creating/editing template manually
   const [formData, setFormData] = useState<{
     id?: string;
     name: string;
@@ -174,9 +173,6 @@ export default function TemplatesPage() {
             <h1 className="text-2xl font-bold tracking-tight text-white">
               Visual Template Studio & Gallery
             </h1>
-            <span className="px-2 py-0.5 text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">
-              Task 1.4
-            </span>
           </div>
           <p className="text-sm text-zinc-400">
             Manage your Templated.io dynamic layer templates and automated slide layout mappings.
@@ -189,7 +185,7 @@ export default function TemplatesPage() {
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-zinc-200 text-xs font-semibold transition-all cursor-pointer shadow-sm"
           >
             <ExternalLink className="w-4 h-4 text-emerald-400" />
-            <span>Launch Embed Studio</span>
+            <span>Design in Studio</span>
           </button>
 
           <button
@@ -217,7 +213,7 @@ export default function TemplatesPage() {
           </p>
           <button
             onClick={handleOpenCreateModal}
-            className="px-4 py-2 bg-emerald-500 text-zinc-950 text-xs font-semibold rounded-lg hover:bg-emerald-400 transition-colors"
+            className="px-4 py-2 bg-emerald-500 text-zinc-950 text-xs font-semibold rounded-lg hover:bg-emerald-400 transition-colors cursor-pointer"
           >
             Create Starter Template
           </button>
@@ -327,7 +323,7 @@ export default function TemplatesPage() {
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-zinc-500 hover:text-zinc-300 p-1"
+                className="text-zinc-500 hover:text-zinc-300 p-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -415,7 +411,7 @@ export default function TemplatesPage() {
                         hasBackgroundPlaceholder: !formData.hasBackgroundPlaceholder,
                       })
                     }
-                    className={`w-full px-3 py-2 rounded-xl border text-xs font-medium transition-colors ${
+                    className={`w-full px-3 py-2 rounded-xl border text-xs font-medium transition-colors cursor-pointer ${
                       formData.hasBackgroundPlaceholder
                         ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
                         : "bg-zinc-800/80 border-zinc-700 text-zinc-400"
@@ -513,14 +509,14 @@ export default function TemplatesPage() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 transition-colors"
+                  className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-xs font-semibold text-zinc-950 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-xs font-semibold text-zinc-950 transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   {isSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{isSaving ? "Saving..." : "Save Template"}</span>
@@ -531,45 +527,15 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      {/* 2. Modal: Embedded Templated.io Studio Iframe */}
-      {isEmbedOpen && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col p-4 md:p-8">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-                <LayoutTemplate className="w-4 h-4 text-emerald-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
-                  Templated.io Studio Embed
-                  <span className="text-[10px] font-mono px-2 py-0.5 bg-zinc-800 rounded text-zinc-400">
-                    Template: {activeEmbedTemplateId || "New"}
-                  </span>
-                </h3>
-                <p className="text-[11px] text-zinc-400">
-                  Design dynamic layers in the visual editor. All layers map to RepurposeAI AI engine.
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setIsEmbedOpen(false)}
-              className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition-colors cursor-pointer"
-            >
-              Close Studio
-            </button>
-          </div>
-
-          <div className="flex-1 w-full mt-4 rounded-xl border border-zinc-800 bg-zinc-950 overflow-hidden relative">
-            <iframe
-              src={`https://templated.io/embed/${activeEmbedTemplateId || ""}?embed=true`}
-              title="Templated.io Visual Studio"
-              className="w-full h-full border-0"
-              allow="camera; microphone; clipboard-read; clipboard-write;"
-            />
-          </div>
-        </div>
-      )}
+      {/* 2. Official Sandboxed Templated.io Editor */}
+      <TemplatedEditor
+        isOpen={isEmbedOpen}
+        templateId={activeEmbedTemplateId === "new" ? undefined : activeEmbedTemplateId}
+        onClose={() => setIsEmbedOpen(false)}
+        onSaveSuccess={() => {
+          loadTemplates();
+        }}
+      />
     </div>
   );
 }

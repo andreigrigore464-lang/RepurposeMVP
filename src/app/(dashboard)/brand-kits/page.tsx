@@ -253,9 +253,6 @@ export default function BrandKitsPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-2xl font-bold tracking-tight text-white">Brand Kit Studio</h1>
-            <span className="px-2 py-0.5 text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">
-              Task 1.3
-            </span>
           </div>
           <p className="text-sm text-zinc-400">
             Define your visual identity. These assets and color tokens are injected directly into Templated.io dynamic slide layers.

@@ -1,97 +1,53 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getOrCreateDefaultWorkspace } from "@/lib/workspace";
-
-// Default starter templates if user starts fresh
-const STARTER_TEMPLATES = [
-  {
-    name: "Modern Carousel Hook (1:1)",
-    templatedTemplateId: "tmpl_hook_square_01",
-    previewImageUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
-    aspectRatio: "1:1",
-    hasBackgroundPlaceholder: true,
-    layerMappings: {
-      headline_layer: "headline_text",
-      body_layer: "body_text",
-      background_layer: "background_image",
-      logo_layer: "brand_logo",
-      counter_layer: "slide_counter",
-    },
-  },
-  {
-    name: "LinkedIn Deep-Dive Slide (4:5)",
-    templatedTemplateId: "tmpl_content_portrait_02",
-    previewImageUrl: "https://images.unsplash.com/photo-1557683316-973673baf926?q=80&w=1000&auto=format&fit=crop",
-    aspectRatio: "4:5",
-    hasBackgroundPlaceholder: true,
-    layerMappings: {
-      headline_layer: "headline_text",
-      body_layer: "body_text",
-      background_layer: "background_image",
-      logo_layer: "brand_logo",
-      counter_layer: "slide_counter",
-    },
-  },
-  {
-    name: "Viral Social Card / Quote (16:9)",
-    templatedTemplateId: "tmpl_quote_landscape_03",
-    previewImageUrl: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=1000&auto=format&fit=crop",
-    aspectRatio: "16:9",
-    hasBackgroundPlaceholder: false,
-    layerMappings: {
-      headline_layer: "headline_text",
-      body_layer: "body_text",
-      background_layer: "background_image",
-      logo_layer: "brand_logo",
-      counter_layer: "slide_counter",
-    },
-  },
-];
+import { getOrCreateDefaultWorkspace, fallbackStore } from "@/lib/workspace";
 
 // GET /api/v1/templates
 export async function GET() {
   try {
     const workspace = await getOrCreateDefaultWorkspace();
 
-    let templates = await prisma.brandTemplate.findMany({
-      where: { workspaceId: workspace.id },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // Auto-seed starter templates if empty
-    if (templates.length === 0) {
-      const defaultKit = await prisma.brandKit.findFirst({
-        where: { workspaceId: workspace.id },
-      });
-
-      for (const starter of STARTER_TEMPLATES) {
-        await prisma.brandTemplate.create({
-          data: {
-            workspaceId: workspace.id,
-            brandKitId: defaultKit?.id,
-            name: starter.name,
-            templatedTemplateId: starter.templatedTemplateId,
-            previewImageUrl: starter.previewImageUrl,
-            aspectRatio: starter.aspectRatio,
-            hasBackgroundPlaceholder: starter.hasBackgroundPlaceholder,
-            layerMappings: starter.layerMappings,
-          },
-        });
-      }
-
-      templates = await prisma.brandTemplate.findMany({
+    try {
+      let templates = await prisma.brandTemplate.findMany({
         where: { workspaceId: workspace.id },
         orderBy: { createdAt: "desc" },
       });
-    }
 
-    return NextResponse.json({ success: true, templates });
+      // Auto-seed starter templates if empty
+      if (templates.length === 0) {
+        const defaultKit = await prisma.brandKit.findFirst({
+          where: { workspaceId: workspace.id },
+        });
+
+        for (const starter of fallbackStore.templates) {
+          await prisma.brandTemplate.create({
+            data: {
+              workspaceId: workspace.id,
+              brandKitId: defaultKit?.id,
+              name: starter.name,
+              templatedTemplateId: starter.templatedTemplateId,
+              previewImageUrl: starter.previewImageUrl,
+              aspectRatio: starter.aspectRatio,
+              hasBackgroundPlaceholder: starter.hasBackgroundPlaceholder,
+              layerMappings: starter.layerMappings,
+            },
+          });
+        }
+
+        templates = await prisma.brandTemplate.findMany({
+          where: { workspaceId: workspace.id },
+          orderBy: { createdAt: "desc" },
+        });
+      }
+
+      return NextResponse.json({ success: true, templates });
+    } catch {
+      // Database offline fallback
+      return NextResponse.json({ success: true, templates: fallbackStore.templates });
+    }
   } catch (error) {
     console.error("Error fetching templates:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch templates" },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, templates: fallbackStore.templates });
   }
 }
 
@@ -125,46 +81,87 @@ export async function POST(req: Request) {
       );
     }
 
-    let defaultKitId = brandKitId;
-    if (!defaultKitId) {
-      const kit = await prisma.brandKit.findFirst({
-        where: { workspaceId: workspace.id },
-      });
-      defaultKitId = kit?.id;
-    }
+    try {
+      let defaultKitId = brandKitId;
+      if (!defaultKitId) {
+        const kit = await prisma.brandKit.findFirst({
+          where: { workspaceId: workspace.id },
+        });
+        defaultKitId = kit?.id;
+      }
 
-    if (id) {
-      // Update existing
-      const template = await prisma.brandTemplate.update({
-        where: { id },
+      if (id) {
+        // Update existing
+        const template = await prisma.brandTemplate.update({
+          where: { id },
+          data: {
+            name,
+            templatedTemplateId,
+            previewImageUrl:
+              previewImageUrl ||
+              "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
+            aspectRatio,
+            hasBackgroundPlaceholder,
+            layerMappings,
+            brandKitId: defaultKitId,
+          },
+        });
+        return NextResponse.json({ success: true, template });
+      }
+
+      // Create new template
+      const template = await prisma.brandTemplate.create({
         data: {
+          workspaceId: workspace.id,
+          brandKitId: defaultKitId,
           name,
           templatedTemplateId,
-          previewImageUrl: previewImageUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
+          previewImageUrl:
+            previewImageUrl ||
+            "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
           aspectRatio,
           hasBackgroundPlaceholder,
           layerMappings,
-          brandKitId: defaultKitId,
         },
       });
-      return NextResponse.json({ success: true, template });
-    }
 
-    // Create new template
-    const template = await prisma.brandTemplate.create({
-      data: {
+      return NextResponse.json({ success: true, template }, { status: 201 });
+    } catch {
+      // Offline fallback
+      if (id) {
+        const existingIdx = fallbackStore.templates.findIndex((t) => t.id === id);
+        if (existingIdx >= 0) {
+          fallbackStore.templates[existingIdx] = {
+            ...fallbackStore.templates[existingIdx],
+            name,
+            templatedTemplateId,
+            previewImageUrl: previewImageUrl || fallbackStore.templates[existingIdx].previewImageUrl,
+            aspectRatio,
+            hasBackgroundPlaceholder,
+            layerMappings,
+            updatedAt: new Date().toISOString(),
+          };
+          return NextResponse.json({ success: true, template: fallbackStore.templates[existingIdx] });
+        }
+      }
+
+      const newTmpl = {
+        id: `tmpl-local-${Date.now()}`,
         workspaceId: workspace.id,
-        brandKitId: defaultKitId,
         name,
         templatedTemplateId,
-        previewImageUrl: previewImageUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
+        previewImageUrl:
+          previewImageUrl ||
+          "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
         aspectRatio,
         hasBackgroundPlaceholder,
         layerMappings,
-      },
-    });
-
-    return NextResponse.json({ success: true, template }, { status: 201 });
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      fallbackStore.templates.unshift(newTmpl);
+      return NextResponse.json({ success: true, template: newTmpl }, { status: 201 });
+    }
   } catch (error) {
     console.error("Error saving template:", error);
     return NextResponse.json(
@@ -184,9 +181,13 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Template ID is required" }, { status: 400 });
     }
 
-    await prisma.brandTemplate.delete({
-      where: { id },
-    });
+    try {
+      await prisma.brandTemplate.delete({
+        where: { id },
+      });
+    } catch {
+      fallbackStore.templates = fallbackStore.templates.filter((t) => t.id !== id);
+    }
 
     return NextResponse.json({ success: true, message: "Template deleted" });
   } catch (error) {
