@@ -1,0 +1,283 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+
+  @@map("user_role")
+}
+
+enum PlatformType {
+  BLOG_RSS
+  CUSTOM_URL
+  INSTAGRAM
+  LINKEDIN
+  TIKTOK
+  TWITTER_X
+  PINTEREST
+  YOUTUBE
+  GOOGLE_DRIVE
+  WEBHOOK
+
+  @@map("platform_type")
+}
+
+enum OutputFormatType {
+  MULTI_SLIDE_CAROUSEL
+  SINGLE_IMAGE_CARD
+  TEXT_THREAD
+  SHORT_VIDEO
+
+  @@map("output_format_type")
+}
+
+enum BackgroundImageStrategy {
+  ARTICLE_IMAGE_FIRST
+  STOCK_SEARCH_ONLY
+  SOLID_COLOR_ONLY
+  DISABLED
+
+  @@map("background_image_strategy")
+}
+
+enum ExecutionStatus {
+  PENDING
+  PROCESSING
+  PENDING_APPROVAL
+  SUCCEEDED
+  FAILED
+  CANCELLED
+
+  @@map("execution_status")
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+// 1. Users Model
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique @db.VarChar(255)
+  fullName  String   @map("full_name") @db.VarChar(255)
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  memberships WorkspaceMember[]
+
+  @@map("users")
+}
+
+// 2. Workspaces Model (Multi-Tenancy Unit & Usage Meters)
+model Workspace {
+  id                String   @id @default(uuid()) @db.Uuid
+  name              String   @db.VarChar(255)
+  slug              String   @unique @db.VarChar(255)
+  rendersCountMonth Int      @default(0) @map("renders_count_month")
+  postsCountMonth   Int      @default(0) @map("posts_count_month")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  members            WorkspaceMember[]
+  brandKits          BrandKit[]
+  brandTemplates     BrandTemplate[]
+  integrations       Integration[]
+  workflows          Workflow[]
+  sourceItems        SourceItem[]
+  workflowExecutions WorkflowExecution[]
+  publishDraftItems  PublishDraftItem[]
+
+  @@map("workspaces")
+}
+
+// 3. Workspace Members Model
+model WorkspaceMember {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  role        UserRole @default(MEMBER)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_members")
+}
+
+// 4. Brand Kits Model
+model BrandKit {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @map("workspace_id") @db.Uuid
+  name              String   @default("Default Brand Kit") @db.VarChar(255)
+  logoCloudinaryUrl String?  @map("logo_cloudinary_url")
+  primaryColor      String   @default("#000000") @map("primary_color") @db.VarChar(20)
+  secondaryColor    String   @default("#FFFFFF") @map("secondary_color") @db.VarChar(20)
+  accentColor       String   @default("#00FF66") @map("accent_color") @db.VarChar(20)
+  fontFamily        String   @default("Inter") @map("font_family") @db.VarChar(100)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  brandTemplates BrandTemplate[]
+
+  @@map("brand_kits")
+}
+
+// 5. Brand Templates Model (Templated.io Integration)
+model BrandTemplate {
+  id                       String   @id @default(uuid()) @db.Uuid
+  workspaceId              String   @map("workspace_id") @db.Uuid
+  brandKitId               String?  @map("brand_kit_id") @db.Uuid
+  name                     String   @db.VarChar(255)
+  templatedTemplateId      String   @map("templated_template_id") @db.VarChar(255)
+  previewImageUrl          String   @map("preview_image_url")
+  aspectRatio              String   @default("1:1") @map("aspect_ratio") @db.VarChar(20)
+  hasBackgroundPlaceholder Boolean  @default(true) @map("has_background_placeholder")
+  layerMappings            Json     @default("{\"headline_layer\": \"headline_text\", \"body_layer\": \"body_text\", \"background_layer\": \"background_image\", \"logo_layer\": \"brand_logo\", \"counter_layer\": \"slide_counter\"}") @map("layer_mappings")
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  brandKit  BrandKit?  @relation(fields: [brandKitId], references: [id], onDelete: SetNull)
+  workflows Workflow[]
+
+  @@map("brand_templates")
+}
+
+// 6. Integrations Model (Connected Social & Source Accounts)
+model Integration {
+  id                  String       @id @default(uuid()) @db.Uuid
+  workspaceId         String       @map("workspace_id") @db.Uuid
+  platform            PlatformType
+  accountName         String       @map("account_name") @db.VarChar(255)
+  accountId           String       @map("account_id") @db.VarChar(255)
+  accountHandle       String?      @map("account_handle") @db.VarChar(255)
+  avatarUrl           String?      @map("avatar_url")
+  credentialsVaultKey String       @map("credentials_vault_key")
+  tokenExpiresAt      DateTime?    @map("token_expires_at") @db.Timestamptz(6)
+  status              String       @default("ACTIVE") @db.VarChar(50)
+  metadata            Json         @default("{}")
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  workspace             Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceWorkflows       Workflow[] @relation("SourceIntegration")
+  destinationWorkflows  Workflow[] @relation("DestinationIntegration")
+
+  @@map("integrations")
+}
+
+// 7. Workflows Model (Automation Rules & Format Configuration)
+model Workflow {
+  id                       String                  @id @default(uuid()) @db.Uuid
+  workspaceId              String                  @map("workspace_id") @db.Uuid
+  name                     String                  @db.VarChar(255)
+  isActive                 Boolean                 @default(true) @map("is_active")
+  sourcePlatform           PlatformType            @map("source_platform")
+  sourceIntegrationId      String?                 @map("source_integration_id") @db.Uuid
+  sourceRssFeedUrl         String?                 @map("source_rss_feed_url")
+  destinationPlatform      PlatformType            @map("destination_platform")
+  destinationIntegrationId String?                 @map("destination_integration_id") @db.Uuid
+  brandTemplateId          String?                 @map("brand_template_id") @db.Uuid
+  outputFormat             OutputFormatType        @default(MULTI_SLIDE_CAROUSEL) @map("output_format")
+  backgroundStrategy       BackgroundImageStrategy @default(ARTICLE_IMAGE_FIRST) @map("background_strategy")
+  isAutopilot              Boolean                 @default(false) @map("is_autopilot")
+  filterRules              Json                    @default("{\"min_word_count\": 150, \"keywords_include\": [], \"keywords_exclude\": []}") @map("filter_rules")
+  createdAt                DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  workspace              Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceIntegration      Integration?        @relation("SourceIntegration", fields: [sourceIntegrationId], references: [id], onDelete: Cascade)
+  destinationIntegration Integration?        @relation("DestinationIntegration", fields: [destinationIntegrationId], references: [id], onDelete: Cascade)
+  brandTemplate          BrandTemplate?      @relation(fields: [brandTemplateId], references: [id], onDelete: SetNull)
+  sourceItems            SourceItem[]
+  workflowExecutions     WorkflowExecution[]
+
+  @@map("workflows")
+}
+
+// 8. Source Items Model (Ingested Articles / Blog Posts)
+model SourceItem {
+  id               String    @id @default(uuid()) @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  workflowId       String?   @map("workflow_id") @db.Uuid
+  externalUrl      String    @map("external_url")
+  title            String
+  bodyMarkdown     String    @map("body_markdown")
+  authorName       String?   @map("author_name") @db.VarChar(255)
+  featuredImageUrl String?   @map("featured_image_url")
+  publishedAt      DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workflow           Workflow?           @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workflowExecutions WorkflowExecution[]
+
+  @@map("source_items")
+}
+
+// 9. Workflow Executions Model
+model WorkflowExecution {
+  id           String          @id @default(uuid()) @db.Uuid
+  workspaceId  String          @map("workspace_id") @db.Uuid
+  workflowId   String?         @map("workflow_id") @db.Uuid
+  sourceItemId String          @map("source_item_id") @db.Uuid
+  status       ExecutionStatus @default(PENDING)
+  errorMessage String?         @map("error_message")
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workflow          Workflow?          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  sourceItem        SourceItem         @relation(fields: [sourceItemId], references: [id], onDelete: Cascade)
+  publishDraftItems PublishDraftItem[]
+
+  @@map("workflow_executions")
+}
+
+// 10. Publish Draft Items Model (The Approval Inbox)
+model PublishDraftItem {
+  id                  String          @id @default(uuid()) @db.Uuid
+  workspaceId         String          @map("workspace_id") @db.Uuid
+  executionId         String          @map("execution_id") @db.Uuid
+  destinationPlatform PlatformType    @map("destination_platform")
+  postTitle           String          @map("post_title")
+  postCaption         String          @map("post_caption")
+  postHashtags        String[]        @default([]) @map("post_hashtags")
+  slidesData          Json            @default("[{\"slide_index\": 1, \"headline\": \"Hook Title\", \"body\": \"Excerpt text\", \"background_image_url\": \"https://res.cloudinary.com/...\", \"rendered_png_url\": \"https://api.templated.io/renders/...\"}]") @map("slides_data")
+  pdfDocumentUrl      String?         @map("pdf_document_url")
+  status              ExecutionStatus @default(PENDING_APPROVAL)
+  publishedAt         DateTime?       @map("published_at") @db.Timestamptz(6)
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  execution WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@map("publish_draft_items")
+}

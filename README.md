@@ -1,36 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Repurpose SaaS (MVP)
+
+An AI-powered content repurposing and social distribution platform built with Next.js 15, Gemini AI, Cloudinary, and Templated.io.
+
+## Architecture Overview
+
+Repurpose MVP transforms long-form content (blog posts, articles, RSS feeds) into high-performing social assets (LinkedIn PDF carousels, Instagram slide decks, and social cards).
+
+- **Framework**: Next.js 15 (App Router, React 19, TypeScript)
+- **Styling & UI**: TailwindCSS v4, shadcn/ui, Lucide Icons
+- **Database & ORM**: PostgreSQL, Prisma ORM
+- **AI Engine**: Google Gemini API (Structured JSON prompt chains)
+- **Media & Rendering**: Cloudinary (Brand assets & slide images) & Templated.io (Automated slide rendering)
+- **Document Generation**: `pdf-lib` (Swipeable LinkedIn PDF carousels)
 
 ## Getting Started
 
-First, run the development server:
+### 1. Prerequisites
+- Node.js 20+
+- PostgreSQL database
+- API Keys: Google Gemini, Cloudinary, Templated.io, Unsplash
+
+### 2. Environment Setup
+Copy `.env.example` to `.env` and fill in your credentials:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 3. Install Dependencies & Generate Prisma Client
+```bash
+npm install
+npx prisma generate
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 4. Database Migrations
+```bash
+npx prisma migrate dev --name init
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 5. Run Development Server
+```bash
+npm run dev
+```
 
-## Learn More
+Open [http://localhost:3000](http://localhost:3000) to view the application.
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## SDD Specification Reference
+Specifications are located in `D:\Work\AI\Specs\Gemini`:
+- `00_OVERVIEW_AND_SYSTEM_ARCHITECTURE.md` - System Architecture & Modular Monolith Topology
+- `01_DOMAIN_MODEL_AND_DATA_SCHEMAS.md` - Domain Model & PostgreSQL Schemas
+- `02_INTEGRATIONS_AND_OAUTH_ENGINE.md` - Integrations & Connectors
+- `03_WORKFLOWS_AND_AUTOMATION_ENGINE.md` - Workflow Engine & Density Guard
+- `05_AI_ENHANCEMENT_AND_METADATA_ENGINE.md` - Gemini AI Prompt Chains & Schemas
+- `07_FRONTEND_AND_UI_UX_SPEC.md` - UI/UX & Studio Quick-Editor
+- `09_TEMPLATED_CLOUDINARY_AND_FORMAT_MATRIX.md` - Templated.io & Cloudinary Pipelines
+- `11_TASK_BOARD_AND_GIT_WORKFLOW.md` - Task Board & Execution Plan
