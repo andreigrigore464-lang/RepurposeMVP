@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getOrCreateDefaultWorkspace, fallbackStore, STARTER_TEMPLATES } from "@/lib/workspace";
+import { getOrCreateDefaultWorkspace, fallbackStore, STARTER_TEMPLATES, isDatabaseAvailable } from "@/lib/workspace";
 import { listTemplatedTemplates, extractLayerMappings } from "@/lib/templated";
 
 // GET /api/v1/templates
@@ -29,19 +29,24 @@ export async function GET(req: Request) {
     }> = [];
 
     // 1. Fetch from Database / Fallback Store
-    try {
-      const dbTemplates = await prisma.brandTemplate.findMany({
-        where: { workspaceId },
-        orderBy: { createdAt: "desc" },
-      });
-      templates = dbTemplates.map((t) => ({
-        ...t,
-        layerMappings: typeof t.layerMappings === "object" && t.layerMappings !== null
-          ? (t.layerMappings as Record<string, string>)
-          : {},
-      }));
-    } catch {
-      templates = fallbackStore.templates.filter((t) => t.workspaceId === workspaceId);
+    const dbOnline = await isDatabaseAvailable();
+    if (!dbOnline) {
+      templates = fallbackStore.templates.filter((t) => t.workspaceId === workspaceId || !t.workspaceId);
+    } else {
+      try {
+        const dbTemplates = await prisma.brandTemplate.findMany({
+          where: { workspaceId },
+          orderBy: { createdAt: "desc" },
+        });
+        templates = dbTemplates.map((t) => ({
+          ...t,
+          layerMappings: typeof t.layerMappings === "object" && t.layerMappings !== null
+            ? (t.layerMappings as Record<string, string>)
+            : {},
+        }));
+      } catch {
+        templates = fallbackStore.templates.filter((t) => t.workspaceId === workspaceId);
+      }
     }
 
     // 2. Optionally sync with Templated.io cloud for this workspace external_id

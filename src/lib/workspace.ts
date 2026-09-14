@@ -190,10 +190,45 @@ export const fallbackStore: {
   drafts: [],
 };
 
+let isDbOnline: boolean | null = null;
+let lastDbCheck = 0;
+const DB_CHECK_INTERVAL_MS = 20000; // Cache check result for 20s
+
+/**
+ * Rapidly checks if PostgreSQL is reachable (max 800ms probe) and caches status
+ * to prevent hanging TCP connection timeouts on every API request.
+ */
+export async function isDatabaseAvailable(): Promise<boolean> {
+  const now = Date.now();
+  if (isDbOnline !== null && now - lastDbCheck < DB_CHECK_INTERVAL_MS) {
+    return isDbOnline;
+  }
+
+  try {
+    const probe = Promise.race([
+      prisma.$queryRaw`SELECT 1`,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("DB Connection Timeout")), 800)),
+    ]);
+    await probe;
+    isDbOnline = true;
+    lastDbCheck = now;
+    return true;
+  } catch {
+    isDbOnline = false;
+    lastDbCheck = now;
+    return false;
+  }
+}
+
 /**
  * Gets or creates the default workspace and user for single-tenant / development context.
  */
 export async function getOrCreateDefaultWorkspace() {
+  const dbAvailable = await isDatabaseAvailable();
+  if (!dbAvailable) {
+    return fallbackStore.workspace;
+  }
+
   try {
     let workspace = await prisma.workspace.findUnique({
       where: { slug: DEFAULT_WORKSPACE_SLUG },
@@ -239,8 +274,7 @@ export async function getOrCreateDefaultWorkspace() {
     }
 
     return workspace;
-  } catch (error) {
-    console.warn("Database offline, falling back to local workspace memory store:", error);
+  } catch {
     return fallbackStore.workspace;
   }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getOrCreateDefaultWorkspace, fallbackStore, STARTER_TEMPLATES } from "@/lib/workspace";
+import { getOrCreateDefaultWorkspace, fallbackStore, STARTER_TEMPLATES, isDatabaseAvailable } from "@/lib/workspace";
 
 // GET /api/v1/workflows
 export async function GET(req: Request) {
@@ -10,6 +10,13 @@ export async function GET(req: Request) {
 
     const defaultWorkspace = await getOrCreateDefaultWorkspace();
     const workspaceId = requestedWorkspaceId || defaultWorkspace.id;
+
+    const dbOnline = await isDatabaseAvailable();
+    if (!dbOnline) {
+      const filtered = fallbackStore.workflows.filter((w) => w.workspaceId === workspaceId || !w.workspaceId);
+      const uniqueWfs = Array.from(new Map(filtered.map((w) => [w.id, w])).values());
+      return NextResponse.json({ success: true, workflows: uniqueWfs });
+    }
 
     try {
       const workflows = await prisma.workflow.findMany({

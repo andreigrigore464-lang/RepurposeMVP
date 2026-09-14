@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getOrCreateDefaultWorkspace, fallbackStore } from "@/lib/workspace";
+import { getOrCreateDefaultWorkspace, fallbackStore, isDatabaseAvailable } from "@/lib/workspace";
 
 // GET /api/v1/brand-kits
 export async function GET(req: Request) {
@@ -9,6 +9,12 @@ export async function GET(req: Request) {
     const id = searchParams.get("id");
 
     const workspace = await getOrCreateDefaultWorkspace();
+
+    const dbOnline = await isDatabaseAvailable();
+    if (!dbOnline) {
+      const kit = fallbackStore.workspace.brandKits[0];
+      return NextResponse.json({ success: true, brandKit: kit, brandKits: fallbackStore.workspace.brandKits });
+    }
 
     try {
       if (id) {

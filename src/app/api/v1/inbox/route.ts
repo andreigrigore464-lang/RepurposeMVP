@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getOrCreateDefaultWorkspace, fallbackStore } from "@/lib/workspace";
+import { getOrCreateDefaultWorkspace, fallbackStore, isDatabaseAvailable } from "@/lib/workspace";
 
 // GET /api/v1/inbox
 export async function GET(req: Request) {
@@ -10,6 +10,13 @@ export async function GET(req: Request) {
 
     const defaultWorkspace = await getOrCreateDefaultWorkspace();
     const workspaceId = requestedWorkspaceId || defaultWorkspace.id;
+
+    const dbOnline = await isDatabaseAvailable();
+    if (!dbOnline) {
+      const filtered = fallbackStore.drafts.filter((d) => d.workspaceId === workspaceId || !d.workspaceId);
+      const uniqueDrafts = Array.from(new Map(filtered.map((d) => [d.id, d])).values());
+      return NextResponse.json({ success: true, drafts: uniqueDrafts });
+    }
 
     try {
       const drafts = await prisma.publishDraftItem.findMany({
