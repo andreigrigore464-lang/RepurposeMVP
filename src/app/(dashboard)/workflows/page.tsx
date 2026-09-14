@@ -208,13 +208,20 @@ export default function WorkflowsPage() {
         const data = await res.json();
         setGenerationResult(data);
       } else {
-        const errData = await res.json();
-        alert(`Pipeline failed: ${errData.error || "Unknown error"}`);
+        let errMsg = `Server returned HTTP ${res.status}`;
+        try {
+          const errData = await res.json();
+          errMsg = errData.error || errMsg;
+        } catch {
+          const rawText = await res.text().catch(() => "");
+          if (rawText) errMsg = `${errMsg}: ${rawText.slice(0, 100)}`;
+        }
+        alert(`Pipeline failed: ${errMsg}`);
       }
     } catch (err) {
       clearInterval(stepInterval);
       console.error("Pipeline run error:", err);
-      alert("Failed to execute pipeline");
+      alert(`Failed to execute pipeline: ${err instanceof Error ? err.message : "Network error"}`);
     } finally {
       setIsRunning(false);
     }
