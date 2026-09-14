@@ -16,14 +16,17 @@ export async function GET(req: Request) {
         where: { workspaceId },
         orderBy: { createdAt: "desc" },
       });
-      return NextResponse.json({ success: true, drafts });
+      const uniqueDrafts = Array.from(new Map(drafts.map((d) => [d.id, d])).values());
+      return NextResponse.json({ success: true, drafts: uniqueDrafts });
     } catch {
-      const drafts = fallbackStore.drafts.filter((d) => d.workspaceId === workspaceId);
-      return NextResponse.json({ success: true, drafts });
+      const filtered = fallbackStore.drafts.filter((d) => d.workspaceId === workspaceId);
+      const uniqueDrafts = Array.from(new Map(filtered.map((d) => [d.id, d])).values());
+      return NextResponse.json({ success: true, drafts: uniqueDrafts });
     }
   } catch (error) {
     console.error("[Inbox GET Error]:", error);
-    return NextResponse.json({ success: true, drafts: fallbackStore.drafts });
+    const uniqueDrafts = Array.from(new Map(fallbackStore.drafts.map((d) => [d.id, d])).values());
+    return NextResponse.json({ success: true, drafts: uniqueDrafts });
   }
 }
 

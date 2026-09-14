@@ -19,15 +19,18 @@ export async function GET(req: Request) {
         },
         orderBy: { createdAt: "desc" },
       });
-      return NextResponse.json({ success: true, workflows });
+      const uniqueWfs = Array.from(new Map(workflows.map((w) => [w.id, w])).values());
+      return NextResponse.json({ success: true, workflows: uniqueWfs });
     } catch {
       // Offline fallback
-      const workflows = fallbackStore.workflows.filter((w) => w.workspaceId === workspaceId);
-      return NextResponse.json({ success: true, workflows });
+      const filtered = fallbackStore.workflows.filter((w) => w.workspaceId === workspaceId);
+      const uniqueWfs = Array.from(new Map(filtered.map((w) => [w.id, w])).values());
+      return NextResponse.json({ success: true, workflows: uniqueWfs });
     }
   } catch (error) {
     console.error("[Workflows GET Error]:", error);
-    return NextResponse.json({ success: true, workflows: fallbackStore.workflows });
+    const uniqueWfs = Array.from(new Map(fallbackStore.workflows.map((w) => [w.id, w])).values());
+    return NextResponse.json({ success: true, workflows: uniqueWfs });
   }
 }
 
@@ -115,8 +118,9 @@ export async function POST(req: Request) {
         }
       }
 
+      const randomSuffix = Math.random().toString(36).slice(2, 8);
       const newWf = {
-        id: `wf-${Date.now()}`,
+        id: `wf-${Date.now()}-${randomSuffix}`,
         workspaceId,
         name,
         isActive,

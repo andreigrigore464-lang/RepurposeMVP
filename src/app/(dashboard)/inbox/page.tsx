@@ -47,7 +47,9 @@ export default function ApprovalInboxPage() {
       const res = await fetch("/api/v1/inbox");
       if (res.ok) {
         const data = await res.json();
-        setDrafts(data.drafts || []);
+        const rawDrafts: DraftItem[] = data.drafts || [];
+        const uniqueDrafts = Array.from(new Map(rawDrafts.map((d) => [d.id, d])).values());
+        setDrafts(uniqueDrafts);
       }
     } catch (err) {
       console.error("Failed to fetch drafts:", err);
@@ -62,7 +64,9 @@ export default function ApprovalInboxPage() {
       .then((res) => (res.ok ? res.json() : Promise.reject(res)))
       .then((data) => {
         if (isMounted) {
-          setDrafts(data.drafts || []);
+          const rawDrafts: DraftItem[] = data.drafts || [];
+          const uniqueDrafts = Array.from(new Map(rawDrafts.map((d) => [d.id, d])).values());
+          setDrafts(uniqueDrafts);
           setIsLoading(false);
         }
       })

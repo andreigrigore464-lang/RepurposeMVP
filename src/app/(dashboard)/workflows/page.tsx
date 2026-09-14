@@ -107,7 +107,9 @@ export default function WorkflowsPage() {
       ]);
       if (wfRes.ok) {
         const wfData = await wfRes.json();
-        setWorkflows(wfData.workflows || []);
+        const rawWfs: Workflow[] = wfData.workflows || [];
+        const uniqueWfs = Array.from(new Map(rawWfs.map((w) => [w.id, w])).values());
+        setWorkflows(uniqueWfs);
       }
       if (tmplRes.ok) {
         const tmplData = await tmplRes.json();
@@ -145,7 +147,9 @@ export default function WorkflowsPage() {
     ])
       .then(([wfData, tmplData]) => {
         if (!isMounted) return;
-        setWorkflows(wfData.workflows || []);
+        const rawWfs: Workflow[] = wfData.workflows || [];
+        const uniqueWfs = Array.from(new Map(rawWfs.map((w) => [w.id, w])).values());
+        setWorkflows(uniqueWfs);
         const userTmpls: TemplateOption[] = tmplData.templates || [];
         const starterTmpls: TemplateOption[] = tmplData.starterTemplates || [];
         setUserTemplates(userTmpls);
