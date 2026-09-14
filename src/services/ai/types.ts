@@ -9,6 +9,7 @@ export interface CarouselSlide {
 
 export interface CarouselSummary {
   hookAngle: string;
+  postCaption?: string;
   slides: CarouselSlide[];
   visualSearchKeywords: string[];
   suggestedHashtags: string[];

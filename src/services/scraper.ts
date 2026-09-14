@@ -78,7 +78,32 @@ export function parseArticleHtml(html: string, url: string): ScrapedArticle {
     doc.querySelector('meta[name="twitter:image"]')?.getAttribute("content");
 
   const ogSiteName = doc.querySelector('meta[property="og:site_name"]')?.getAttribute("content");
-  const publishedTime = doc.querySelector('meta[property="article:published_time"]')?.getAttribute("content");
+  // Remove noise elements before Readability parsing
+  const noiseSelectors = [
+    "script",
+    "style",
+    "noscript",
+    "iframe",
+    "figure",
+    "figcaption",
+    "time",
+    "nav",
+    "footer",
+    "aside",
+    ".ad",
+    ".advertisement",
+    ".byline",
+    ".author-info",
+    ".social-share",
+    ".share-buttons",
+    ".caption",
+    ".image-caption",
+    ".media-caption",
+    '[aria-hidden="true"]',
+  ];
+  noiseSelectors.forEach((selector) => {
+    doc.querySelectorAll(selector).forEach((el) => el.remove());
+  });
 
   // Use Mozilla Readability for main content extraction
   const reader = new Readability(doc);
@@ -110,10 +135,20 @@ export function parseArticleHtml(html: string, url: string): ScrapedArticle {
     }
   }
 
-  // Format body markdown (simple clean paragraphs)
+  // Format body markdown (simple clean paragraphs, filtering out image credits and metadata leftovers)
   const bodyMarkdown = plainText
     .split("\n\n")
-    .filter((para) => para.length > 20)
+    .map((para) => para.trim())
+    .filter(
+      (para) =>
+        para.length > 35 &&
+        !para.toLowerCase().includes("getty images") &&
+        !para.toLowerCase().includes("reuters") &&
+        !para.toLowerCase().includes("afp") &&
+        !para.toLowerCase().includes("photo by") &&
+        !para.toLowerCase().includes("image copyright") &&
+        !para.toLowerCase().includes("all rights reserved")
+    )
     .join("\n\n");
 
   const wordCount = plainText ? plainText.split(/\s+/).filter(Boolean).length : 0;

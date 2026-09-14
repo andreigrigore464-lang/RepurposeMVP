@@ -5,7 +5,7 @@ export class GeminiProvider implements LLMProvider {
   private client: GoogleGenAI | null = null;
   private modelName: string;
 
-  constructor(apiKey?: string, modelName = "gemini-2.5-flash") {
+  constructor(apiKey?: string, modelName = "gemini-2.0-flash") {
     const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
     this.modelName = modelName;
 
@@ -19,7 +19,7 @@ export class GeminiProvider implements LLMProvider {
   }
 
   /**
-   * Summarizes long-form article text into a 5-6 slide structured carousel format.
+   * Summarizes long-form article text into a 5-6 slide structured carousel format with a dedicated high-converting caption.
    */
   async summarizeForCarousel(articleText: string, title?: string): Promise<CarouselSummary> {
     if (!this.client) {
@@ -27,29 +27,32 @@ export class GeminiProvider implements LLMProvider {
       return this.heuristicCarouselSummary(articleText, title);
     }
 
-    const prompt = `You are a world-class viral content strategist and visual carousel designer for LinkedIn, Instagram, and Twitter.
-Transform the following article into a high-converting 5 to 6 slide carousel deck.
+    const prompt = `You are a top 1% content creator and copywriter on LinkedIn and Twitter.
+Transform the following article into a high-converting 5 to 6 slide carousel deck AND write an engaging, human-sounding social media post caption.
 
 Article Title: ${title || "Untitled Article"}
 Article Content:
 ${articleText.slice(0, 12000)}
 
 Requirements:
-1. Return EXACTLY 5 to 6 slides in logical narrative flow:
+1. postCaption: Write a compelling LinkedIn post (3–5 paragraphs with clean whitespace, no fluff, a strong scroll-stopping first sentence, 3 bulleted key takeaways, and a call-to-action inviting the reader to swipe the carousel). DO NOT repeat raw photo captions or bylines.
+2. hookAngle: A punchy 1-sentence summary of the main angle/hook.
+3. slides: Return EXACTLY 5 to 6 slides in logical narrative flow:
    - Slide 1: HOOK (Attention-grabbing headline <= 8 words, punchy subtext <= 25 words).
-   - Slides 2 to 4/5: INSIGHT (High-impact key takeaways, max 10 words headline, max 35 words body).
-   - Final Slide: CTA (Call-to-action encouraging saving, commenting, or reading the source).
-2. visualSearchKeywords: 2 to 3 aesthetic, atmospheric keywords (e.g. ["minimalist architecture", "dark abstract neon", "modern workspace"]) suitable for finding high-quality stock photo backgrounds.
-3. suggestedHashtags: 3 to 5 relevant industry hashtags (e.g. ["#ContentMarketing", "#Productivity", "#AI"]).
+   - Slides 2 to 4/5: INSIGHT (High-impact key takeaways, max 8 words headline, max 30 words body).
+   - Final Slide: CTA (Call-to-action encouraging saving, sharing, or discussing).
+4. visualSearchKeywords: 2 to 3 aesthetic, atmospheric keywords (e.g. ["minimalist architecture", "dark abstract neon", "modern workspace"]) suitable for finding high-quality stock photo backgrounds.
+5. suggestedHashtags: 3 to 5 relevant industry hashtags (e.g. ["#ContentMarketing", "#Productivity", "#AI"]).
 
 Output MUST strictly be valid JSON matching this schema:
 {
   "hookAngle": "string explaining the angle",
+  "postCaption": "string with well-formatted post copy including line breaks",
   "slides": [
     {
       "slide_index": 1,
-      "headline": "string (max 10 words)",
-      "body": "string (max 35 words)",
+      "headline": "string (max 8 words)",
+      "body": "string (max 30 words)",
       "slide_type": "HOOK" | "INSIGHT" | "CTA"
     }
   ],
@@ -148,33 +151,44 @@ Output MUST strictly be valid JSON:
     const rawParagraphs = articleText
       .split(/\n+/)
       .map((p) => p.trim())
-      .filter((p) => p.length > 40 && !p.startsWith("#"));
+      .filter(
+        (p) =>
+          p.length > 50 &&
+          !p.startsWith("#") &&
+          !p.toLowerCase().includes("getty images") &&
+          !p.toLowerCase().includes("reuters") &&
+          !p.toLowerCase().includes("afp") &&
+          !p.toLowerCase().includes("photo by") &&
+          !p.toLowerCase().includes("hours ago") &&
+          !p.toLowerCase().includes("minutes ago")
+      );
 
-    const effectiveTitle = title || rawParagraphs[0]?.slice(0, 60) || "Mastering Automated Content Repurposing";
+    const effectiveTitle = title || rawParagraphs[0]?.slice(0, 60) || "Mastering Content Repurposing";
+    const hookBody = rawParagraphs[0]?.slice(0, 160) || "Discover how to distill long-form ideas into high-converting visual slide decks in seconds.";
 
     const slides = [
       {
         slide_index: 1,
         headline: effectiveTitle.slice(0, 50),
-        body: (rawParagraphs[0] || "Discover the proven framework to turn deep-dive articles into high-converting visual carousels in seconds.").slice(0, 180),
+        body: hookBody,
         slide_type: "HOOK" as const,
       },
       {
         slide_index: 2,
         headline: "1. The Power of Micro-Content",
-        body: (rawParagraphs[1] || "Readers scan before they commit. Breaking complex long-form essays into visual slide bite-sized insights multiplies retention by 4x.").slice(0, 180),
+        body: (rawParagraphs[1] || "Readers scan before they commit. Breaking complex essays into visual slide bite-sized insights multiplies retention by 4x.").slice(0, 160),
         slide_type: "INSIGHT" as const,
       },
       {
         slide_index: 3,
         headline: "2. Strategic Visual Hierarchy",
-        body: (rawParagraphs[2] || "Pair high-contrast headlines with clean typography and subtle background imagery to create a scroll-stopping visual hook.").slice(0, 180),
+        body: (rawParagraphs[2] || "Pair high-contrast headlines with clean typography and subtle background imagery to create a scroll-stopping visual hook.").slice(0, 160),
         slide_type: "INSIGHT" as const,
       },
       {
         slide_index: 4,
         headline: "3. Frictionless Distribution",
-        body: (rawParagraphs[3] || "Repurpose once, publish everywhere. Export directly to multi-page LinkedIn PDFs and Instagram carousels with automated brand styling.").slice(0, 180),
+        body: (rawParagraphs[3] || "Repurpose once, publish everywhere. Export directly to multi-page LinkedIn PDFs and Instagram carousels with automated brand styling.").slice(0, 160),
         slide_type: "INSIGHT" as const,
       },
       {
@@ -185,8 +199,11 @@ Output MUST strictly be valid JSON:
       },
     ];
 
+    const postCaption = `💡 ${effectiveTitle}\n\nMost readers don't have 20 minutes to read long-form articles—they want the core insights fast.\n\nHere are 3 key takeaways distilled into a visual breakdown:\n\n• ${slides[1].headline}: ${slides[1].body.slice(0, 90)}...\n• ${slides[2].headline}: ${slides[2].body.slice(0, 90)}...\n• ${slides[3].headline}: ${slides[3].body.slice(0, 90)}...\n\nSwipe through the carousel presentation below for the full visual breakdown! 👇`;
+
     return {
-      hookAngle: "Actionable frameworks for high-converting content creators",
+      hookAngle: `Key insights on ${effectiveTitle.slice(0, 45)}`,
+      postCaption,
       slides,
       visualSearchKeywords: ["modern abstract dark neon", "minimalist architecture workspace", "geometric gradient"],
       suggestedHashtags: ["#ContentMarketing", "#RepurposeAI", "#GrowthStrategy", "#LinkedInTips"],

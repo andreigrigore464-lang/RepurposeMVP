@@ -83,10 +83,9 @@ export async function POST(req: Request) {
         scraped.title
       );
       slidesData = carouselSummary.slides;
-      postCaption = `🚀 ${carouselSummary.hookAngle}\n\n${carouselSummary.slides
-        .slice(0, 3)
-        .map((s) => `• ${s.headline}: ${s.body.slice(0, 80)}...`)
-        .join("\n")}\n\nSwipe through the carousel presentation below for the full breakdown! 👇`;
+      postCaption =
+        carouselSummary.postCaption ||
+        `🚀 ${carouselSummary.hookAngle}\n\nSwipe through the carousel presentation below for the full visual breakdown! 👇`;
       postHashtags = carouselSummary.suggestedHashtags;
       visualKeywords = carouselSummary.visualSearchKeywords;
     }
