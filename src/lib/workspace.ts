@@ -95,6 +95,43 @@ export const fallbackStore: {
     createdAt: string;
     updatedAt: string;
   }>;
+  workflows: Array<{
+    id: string;
+    workspaceId: string;
+    name: string;
+    isActive: boolean;
+    sourcePlatform: string;
+    sourceRssFeedUrl?: string | null;
+    destinationPlatform: string;
+    brandTemplateId?: string | null;
+    outputFormat: string;
+    backgroundStrategy: string;
+    isAutopilot: boolean;
+    filterRules: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  drafts: Array<{
+    id: string;
+    workspaceId: string;
+    executionId?: string | null;
+    destinationPlatform: string;
+    postTitle: string;
+    postCaption: string;
+    postHashtags: string[];
+    slidesData: Array<{
+      slide_index: number;
+      headline: string;
+      body: string;
+      rendered_png_url: string;
+      background_image_url?: string | null;
+    }>;
+    pdfDocumentUrl?: string | null;
+    status: string;
+    publishedAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
 } = {
   workspace: {
     id: "00000000-0000-0000-0000-000000000001",
@@ -116,6 +153,41 @@ export const fallbackStore: {
     ],
   },
   templates: [],
+  workflows: [
+    {
+      id: "wf-default-1",
+      workspaceId: "00000000-0000-0000-0000-000000000001",
+      name: "Blog Article to LinkedIn Carousel Deck",
+      isActive: true,
+      sourcePlatform: "CUSTOM_URL",
+      sourceRssFeedUrl: null,
+      destinationPlatform: "LINKEDIN",
+      brandTemplateId: "tmpl_hook_square_01",
+      outputFormat: "MULTI_SLIDE_CAROUSEL",
+      backgroundStrategy: "ARTICLE_IMAGE_FIRST",
+      isAutopilot: false,
+      filterRules: { min_word_count: 150, keywords_include: [], keywords_exclude: [] },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: "wf-default-2",
+      workspaceId: "00000000-0000-0000-0000-000000000001",
+      name: "Viral Quote Card for Twitter / X",
+      isActive: true,
+      sourcePlatform: "BLOG_RSS",
+      sourceRssFeedUrl: "https://techcrunch.com/feed/",
+      destinationPlatform: "TWITTER_X",
+      brandTemplateId: "tmpl_quote_landscape_03",
+      outputFormat: "SINGLE_IMAGE_CARD",
+      backgroundStrategy: "STOCK_SEARCH_ONLY",
+      isAutopilot: false,
+      filterRules: { min_word_count: 200, keywords_include: [], keywords_exclude: [] },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ],
+  drafts: [],
 };
 
 /**
