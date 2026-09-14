@@ -78,6 +78,11 @@ export function parseArticleHtml(html: string, url: string): ScrapedArticle {
     doc.querySelector('meta[name="twitter:image"]')?.getAttribute("content");
 
   const ogSiteName = doc.querySelector('meta[property="og:site_name"]')?.getAttribute("content");
+  const publishedTime =
+    doc.querySelector('meta[property="article:published_time"]')?.getAttribute("content") ||
+    doc.querySelector('meta[name="pubdate"]')?.getAttribute("content") ||
+    doc.querySelector('meta[name="date"]')?.getAttribute("content");
+
   // Remove noise elements before Readability parsing
   const noiseSelectors = [
     "script",
