@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getOrCreateDefaultWorkspace, fallbackStore } from "@/lib/workspace";
+import { getOrCreateDefaultWorkspace, fallbackStore, STARTER_TEMPLATES } from "@/lib/workspace";
 
 // GET /api/v1/workflows
 export async function GET(req: Request) {
@@ -60,6 +60,43 @@ export async function POST(req: Request) {
     }
 
     try {
+      let resolvedBrandTemplateUuid: string | null = null;
+      if (brandTemplateId) {
+        try {
+          const existingTmpl = await prisma.brandTemplate.findFirst({
+            where: {
+              OR: [
+                { id: brandTemplateId },
+                { templatedTemplateId: brandTemplateId },
+              ],
+            },
+          });
+          if (existingTmpl) {
+            resolvedBrandTemplateUuid = existingTmpl.id;
+          } else {
+            const starter = STARTER_TEMPLATES.find(
+              (s) => s.id === brandTemplateId || s.templatedTemplateId === brandTemplateId
+            );
+            if (starter) {
+              const createdTmpl = await prisma.brandTemplate.create({
+                data: {
+                  workspaceId,
+                  name: starter.name,
+                  templatedTemplateId: starter.templatedTemplateId,
+                  previewImageUrl: starter.previewImageUrl,
+                  aspectRatio: starter.aspectRatio,
+                  hasBackgroundPlaceholder: starter.hasBackgroundPlaceholder,
+                  layerMappings: starter.layerMappings,
+                },
+              });
+              resolvedBrandTemplateUuid = createdTmpl.id;
+            }
+          }
+        } catch {
+          // If query fails (e.g. invalid UUID format search on id), fall back gracefully
+        }
+      }
+
       if (id) {
         const workflow = await prisma.workflow.update({
           where: { id },
@@ -69,7 +106,7 @@ export async function POST(req: Request) {
             sourcePlatform,
             sourceRssFeedUrl: sourceRssFeedUrl || null,
             destinationPlatform,
-            brandTemplateId: brandTemplateId || null,
+            brandTemplateId: resolvedBrandTemplateUuid,
             outputFormat,
             backgroundStrategy,
             isAutopilot,
@@ -87,7 +124,7 @@ export async function POST(req: Request) {
           sourcePlatform,
           sourceRssFeedUrl: sourceRssFeedUrl || null,
           destinationPlatform,
-          brandTemplateId: brandTemplateId || null,
+          brandTemplateId: resolvedBrandTemplateUuid,
           outputFormat,
           backgroundStrategy,
           isAutopilot,
