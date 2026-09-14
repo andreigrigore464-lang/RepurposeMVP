@@ -1,5 +1,5 @@
 import { CarouselSlide } from "./ai/types";
-import { renderTemplate, getTemplatedTemplate, extractLayerMappings } from "@/lib/templated";
+import { renderTemplate, getTemplatedTemplate, TemplatedLayer } from "@/lib/templated";
 import prisma from "@/lib/prisma";
 
 export interface BatchRenderOptions {
@@ -23,9 +23,191 @@ export interface RenderedSlideResult {
   background_image_url?: string | null;
 }
 
+export interface ResolvedTemplateLayers {
+  headlineLayerName: string | null;
+  bodyLayerName: string | null;
+  bgImageLayerName: string | null;
+  logoLayerName: string | null;
+  counterLayerName: string | null;
+}
+
+/**
+ * Fetches the template's layer schema from Templated.io or database and dynamically resolves
+ * matching layer names for headline, body, background image, logo, and slide counter.
+ */
+export async function getTemplateLayers(
+  templateId: string,
+  customMappings?: BatchRenderOptions["customLayerMappings"]
+): Promise<ResolvedTemplateLayers> {
+  // 1. If explicit custom mappings provided, map them directly
+  if (customMappings && Object.keys(customMappings).length > 0) {
+    return {
+      headlineLayerName: customMappings.headline_layer || null,
+      bodyLayerName: customMappings.body_layer || null,
+      bgImageLayerName: customMappings.background_layer || null,
+      logoLayerName: customMappings.logo_layer || null,
+      counterLayerName: customMappings.counter_layer || null,
+    };
+  }
+
+  // 2. Check Database for saved template layer mappings
+  try {
+    const dbTmpl = await prisma.brandTemplate.findFirst({
+      where: {
+        OR: [
+          { templatedTemplateId: templateId },
+          { id: templateId },
+        ],
+      },
+    });
+
+    if (dbTmpl && dbTmpl.layerMappings && typeof dbTmpl.layerMappings === "object") {
+      const dbMap = dbTmpl.layerMappings as Record<string, string>;
+      if (Object.keys(dbMap).length > 0) {
+        return {
+          headlineLayerName: dbMap.headline_layer || dbMap.title || null,
+          bodyLayerName: dbMap.body_layer || dbMap.body || null,
+          bgImageLayerName: dbMap.background_layer || dbMap.background || null,
+          logoLayerName: dbMap.logo_layer || dbMap.logo || null,
+          counterLayerName: dbMap.counter_layer || dbMap.counter || null,
+        };
+      }
+    }
+  } catch {
+    // Continue to cloud fetch
+  }
+
+  // 3. Fetch template schema dynamically from Templated.io REST API
+  try {
+    const cloudTmpl = await getTemplatedTemplate(templateId);
+    if (cloudTmpl && Array.isArray(cloudTmpl.layers) && cloudTmpl.layers.length > 0) {
+      return resolveLayersFromSchema(cloudTmpl.layers);
+    }
+  } catch (err) {
+    console.warn(`[getTemplateLayers] Could not fetch schema from cloud for template "${templateId}":`, err);
+  }
+
+  // 4. Default fallback layer names matching standard starter templates
+  return {
+    headlineLayerName: "headline_text",
+    bodyLayerName: "body_text",
+    bgImageLayerName: "background_image",
+    logoLayerName: "brand_logo",
+    counterLayerName: "slide_counter",
+  };
+}
+
+/**
+ * Inspects Templated.io layer objects and resolves layer names based on types and naming patterns.
+ */
+export function resolveLayersFromSchema(layers: TemplatedLayer[]): ResolvedTemplateLayers {
+  const textLayers = layers.filter((l) => {
+    const type = (l.type || "").toLowerCase();
+    return type === "text" || type.includes("text") || l.text !== undefined;
+  });
+
+  const imageLayers = layers.filter((l) => {
+    const type = (l.type || "").toLowerCase();
+    return type === "image" || type === "photo" || type.includes("image") || l.image_url !== undefined;
+  });
+
+  // a) Headline / Title: Find text layer named headline_text, title, headline, heading, or the first text layer
+  let headlineLayerName: string | null = null;
+  const headlineCandidates = ["headline_text", "headline", "title", "heading", "hook", "header"];
+  for (const candidate of headlineCandidates) {
+    const match = textLayers.find((l) => (l.name || "").toLowerCase() === candidate || (l.name || "").toLowerCase().includes(candidate));
+    if (match) {
+      headlineLayerName = match.name;
+      break;
+    }
+  }
+  if (!headlineLayerName && textLayers.length > 0) {
+    headlineLayerName = textLayers[0].name;
+  }
+
+  // b) Body / Subtitle: Find text layer named body_text, body, subtitle, text, or the second text layer
+  let bodyLayerName: string | null = null;
+  const bodyCandidates = ["body_text", "body", "subtitle", "subheading", "text", "quote", "content", "description"];
+  for (const candidate of bodyCandidates) {
+    const match = textLayers.find(
+      (l) =>
+        l.name !== headlineLayerName &&
+        ((l.name || "").toLowerCase() === candidate || (l.name || "").toLowerCase().includes(candidate))
+    );
+    if (match) {
+      bodyLayerName = match.name;
+      break;
+    }
+  }
+  if (!bodyLayerName) {
+    const remainingText = textLayers.filter((l) => l.name !== headlineLayerName);
+    if (remainingText.length > 0) {
+      bodyLayerName = remainingText[0].name;
+    }
+  }
+
+  // c) Background Image: Find image layer named background_image, background, image, or first image layer
+  let bgImageLayerName: string | null = null;
+  const bgCandidates = ["background_image", "background", "bg", "image", "photo", "backdrop"];
+  for (const candidate of bgCandidates) {
+    const match = imageLayers.find(
+      (l) => (l.name || "").toLowerCase() === candidate || (l.name || "").toLowerCase().includes(candidate)
+    );
+    if (match) {
+      bgImageLayerName = match.name;
+      break;
+    }
+  }
+  if (!bgImageLayerName && imageLayers.length > 0) {
+    bgImageLayerName = imageLayers[0].name;
+  }
+
+  // d) Brand Logo: Find image layer named brand_logo, logo, or second image layer
+  let logoLayerName: string | null = null;
+  const logoCandidates = ["brand_logo", "logo", "avatar", "icon", "brand"];
+  for (const candidate of logoCandidates) {
+    const match = imageLayers.find(
+      (l) => (l.name || "").toLowerCase() === candidate || (l.name || "").toLowerCase().includes(candidate)
+    );
+    if (match) {
+      logoLayerName = match.name;
+      break;
+    }
+  }
+  if (!logoLayerName) {
+    const remainingImages = imageLayers.filter((l) => l.name !== bgImageLayerName);
+    if (remainingImages.length > 0) {
+      logoLayerName = remainingImages[0].name;
+    }
+  }
+
+  // e) Slide Counter: Find text layer named slide_counter, counter, or page_number
+  let counterLayerName: string | null = null;
+  const counterCandidates = ["slide_counter", "counter", "page_number", "page", "number", "slide_number"];
+  for (const candidate of counterCandidates) {
+    const match = textLayers.find(
+      (l) => (l.name || "").toLowerCase() === candidate || (l.name || "").toLowerCase().includes(candidate)
+    );
+    if (match) {
+      counterLayerName = match.name;
+      break;
+    }
+  }
+
+  return {
+    headlineLayerName,
+    bodyLayerName,
+    bgImageLayerName,
+    logoLayerName,
+    counterLayerName,
+  };
+}
+
 /**
  * Renders multiple carousel slides or a single social card concurrently using Templated.io REST API.
- * Automatically inspects template metadata and layer schema to bind text and image placeholders dynamically.
+ * Injects dynamic AI content into resolved layer keys:
+ * - Text layers: { "text": "The dynamic text string" }
+ * - Image layers: { "image_url": "https://public-image-url.jpg" }
  */
 export async function renderCarouselSlides(
   templateId: string,
@@ -39,75 +221,43 @@ export async function renderCarouselSlides(
     customLayerMappings,
   } = options;
 
-  // 1. Auto-resolve layer schema from DB or Templated REST API
-  let resolvedMappings = customLayerMappings;
-  let hasImagePlaceholder = true;
-
-  if (!resolvedMappings || Object.keys(resolvedMappings).length === 0) {
-    try {
-      // Check database first
-      const dbTmpl = await prisma.brandTemplate.findFirst({
-        where: { templatedTemplateId: templateId },
-      });
-
-      if (dbTmpl && dbTmpl.layerMappings && typeof dbTmpl.layerMappings === "object") {
-        resolvedMappings = dbTmpl.layerMappings as Record<string, string>;
-        hasImagePlaceholder = dbTmpl.hasBackgroundPlaceholder;
-      } else {
-        // Fetch schema dynamically from Templated.io API
-        const cloudTmpl = await getTemplatedTemplate(templateId);
-        if (cloudTmpl && Array.isArray(cloudTmpl.layers)) {
-          resolvedMappings = extractLayerMappings(cloudTmpl.layers);
-          hasImagePlaceholder = cloudTmpl.layers.some(
-            (l) => (l.type === "image" || l.type === "photo") && !l.name?.toLowerCase().includes("logo")
-          );
-        }
-      }
-    } catch {
-      // Fallback to standard conventions
-      resolvedMappings = {
-        headline_layer: "headline_text",
-        body_layer: "body_text",
-        background_layer: "background_image",
-        logo_layer: "brand_logo",
-        counter_layer: "slide_counter",
-      };
-    }
-  }
-
-  const headlineKey = resolvedMappings?.headline_layer || "headline_text";
-  const bodyKey = resolvedMappings?.body_layer || "body_text";
-  const backgroundKey = resolvedMappings?.background_layer || "background_image";
-  const logoKey = resolvedMappings?.logo_layer || "brand_logo";
-  const counterKey = resolvedMappings?.counter_layer || "slide_counter";
+  // 1. Dynamically fetch & resolve layer mapping names
+  const {
+    headlineLayerName,
+    bodyLayerName,
+    bgImageLayerName,
+    logoLayerName,
+    counterLayerName,
+  } = await getTemplateLayers(templateId, customLayerMappings);
 
   const totalSlides = slidesData.length;
 
   const renderPromises = slidesData.map(async (slide) => {
-    const layers: Record<string, unknown> = {
-      [headlineKey]: { text: slide.headline },
-      [bodyKey]: { text: slide.body },
-    };
+    // 2. Build the Injected Layers Payload with explicit type keys
+    const layersPayload: Record<string, { text?: string; image_url?: string }> = {};
 
-    // Only set slide counter if there are multiple slides
-    if (totalSlides > 1) {
-      layers[counterKey] = { text: `${slide.slide_index}/${totalSlides}` };
+    if (headlineLayerName && slide.headline) {
+      layersPayload[headlineLayerName] = { text: slide.headline };
+    }
+    if (bodyLayerName && slide.body) {
+      layersPayload[bodyLayerName] = { text: slide.body };
     }
 
-    // Only inject background image if the template supports an image placeholder and an image was provided
-    if (hasImagePlaceholder && backgroundImageUrl) {
-      layers[backgroundKey] = { image_url: backgroundImageUrl };
+    const slideBgUrl = slide.background_image_url || backgroundImageUrl;
+    if (bgImageLayerName && slideBgUrl) {
+      layersPayload[bgImageLayerName] = { image_url: slideBgUrl };
     }
-
-    // Inject logo if available
-    if (brandKitLogoUrl) {
-      layers[logoKey] = { image_url: brandKitLogoUrl };
+    if (logoLayerName && brandKitLogoUrl) {
+      layersPayload[logoLayerName] = { image_url: brandKitLogoUrl };
+    }
+    if (counterLayerName) {
+      layersPayload[counterLayerName] = { text: `${slide.slide_index} / ${totalSlides}` };
     }
 
     try {
       const renderRes = await renderTemplate({
         templateId,
-        layers,
+        layers: layersPayload,
         externalId,
         async: false,
       });
@@ -116,14 +266,14 @@ export async function renderCarouselSlides(
         renderRes?.render_url ||
         renderRes?.download_url ||
         renderRes?.thumbnail_url ||
-        generateMockSlideImageUrl(slide, totalSlides, backgroundImageUrl);
+        generateMockSlideImageUrl(slide, totalSlides, slideBgUrl);
 
       return {
         slide_index: slide.slide_index,
         headline: slide.headline,
         body: slide.body,
         rendered_png_url: renderedUrl,
-        background_image_url: hasImagePlaceholder ? backgroundImageUrl : null,
+        background_image_url: slideBgUrl || null,
       };
     } catch (err) {
       console.warn(`[Templated Batch Render] Slide #${slide.slide_index} API render failed, using fallback:`, err);
@@ -131,8 +281,8 @@ export async function renderCarouselSlides(
         slide_index: slide.slide_index,
         headline: slide.headline,
         body: slide.body,
-        rendered_png_url: generateMockSlideImageUrl(slide, totalSlides, backgroundImageUrl),
-        background_image_url: hasImagePlaceholder ? backgroundImageUrl : null,
+        rendered_png_url: generateMockSlideImageUrl(slide, totalSlides, slideBgUrl),
+        background_image_url: slideBgUrl || null,
       };
     }
   });
