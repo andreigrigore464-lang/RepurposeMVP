@@ -1,5 +1,6 @@
 import { CarouselSlide } from "./ai/types";
-import { renderTemplate } from "@/lib/templated";
+import { renderTemplate, getTemplatedTemplate, extractLayerMappings } from "@/lib/templated";
+import prisma from "@/lib/prisma";
 
 export interface BatchRenderOptions {
   brandKitLogoUrl?: string | null;
@@ -23,7 +24,8 @@ export interface RenderedSlideResult {
 }
 
 /**
- * Renders multiple carousel slides concurrently using Templated.io REST API.
+ * Renders multiple carousel slides or a single social card concurrently using Templated.io REST API.
+ * Automatically inspects template metadata and layer schema to bind text and image placeholders dynamically.
  */
 export async function renderCarouselSlides(
   templateId: string,
@@ -34,14 +36,50 @@ export async function renderCarouselSlides(
     brandKitLogoUrl,
     backgroundImageUrl,
     externalId,
-    customLayerMappings = {},
+    customLayerMappings,
   } = options;
 
-  const headlineKey = customLayerMappings.headline_layer || "headline_text";
-  const bodyKey = customLayerMappings.body_layer || "body_text";
-  const backgroundKey = customLayerMappings.background_layer || "background_image";
-  const logoKey = customLayerMappings.logo_layer || "brand_logo";
-  const counterKey = customLayerMappings.counter_layer || "slide_counter";
+  // 1. Auto-resolve layer schema from DB or Templated REST API
+  let resolvedMappings = customLayerMappings;
+  let hasImagePlaceholder = true;
+
+  if (!resolvedMappings || Object.keys(resolvedMappings).length === 0) {
+    try {
+      // Check database first
+      const dbTmpl = await prisma.brandTemplate.findFirst({
+        where: { templatedTemplateId: templateId },
+      });
+
+      if (dbTmpl && dbTmpl.layerMappings && typeof dbTmpl.layerMappings === "object") {
+        resolvedMappings = dbTmpl.layerMappings as Record<string, string>;
+        hasImagePlaceholder = dbTmpl.hasBackgroundPlaceholder;
+      } else {
+        // Fetch schema dynamically from Templated.io API
+        const cloudTmpl = await getTemplatedTemplate(templateId);
+        if (cloudTmpl && Array.isArray(cloudTmpl.layers)) {
+          resolvedMappings = extractLayerMappings(cloudTmpl.layers);
+          hasImagePlaceholder = cloudTmpl.layers.some(
+            (l) => (l.type === "image" || l.type === "photo") && !l.name?.toLowerCase().includes("logo")
+          );
+        }
+      }
+    } catch {
+      // Fallback to standard conventions
+      resolvedMappings = {
+        headline_layer: "headline_text",
+        body_layer: "body_text",
+        background_layer: "background_image",
+        logo_layer: "brand_logo",
+        counter_layer: "slide_counter",
+      };
+    }
+  }
+
+  const headlineKey = resolvedMappings?.headline_layer || "headline_text";
+  const bodyKey = resolvedMappings?.body_layer || "body_text";
+  const backgroundKey = resolvedMappings?.background_layer || "background_image";
+  const logoKey = resolvedMappings?.logo_layer || "brand_logo";
+  const counterKey = resolvedMappings?.counter_layer || "slide_counter";
 
   const totalSlides = slidesData.length;
 
@@ -49,13 +87,19 @@ export async function renderCarouselSlides(
     const layers: Record<string, unknown> = {
       [headlineKey]: { text: slide.headline },
       [bodyKey]: { text: slide.body },
-      [counterKey]: { text: `${slide.slide_index}/${totalSlides}` },
     };
 
-    if (backgroundImageUrl) {
+    // Only set slide counter if there are multiple slides
+    if (totalSlides > 1) {
+      layers[counterKey] = { text: `${slide.slide_index}/${totalSlides}` };
+    }
+
+    // Only inject background image if the template supports an image placeholder and an image was provided
+    if (hasImagePlaceholder && backgroundImageUrl) {
       layers[backgroundKey] = { image_url: backgroundImageUrl };
     }
 
+    // Inject logo if available
     if (brandKitLogoUrl) {
       layers[logoKey] = { image_url: brandKitLogoUrl };
     }
@@ -79,7 +123,7 @@ export async function renderCarouselSlides(
         headline: slide.headline,
         body: slide.body,
         rendered_png_url: renderedUrl,
-        background_image_url: backgroundImageUrl,
+        background_image_url: hasImagePlaceholder ? backgroundImageUrl : null,
       };
     } catch (err) {
       console.warn(`[Templated Batch Render] Slide #${slide.slide_index} API render failed, using fallback:`, err);
@@ -88,7 +132,7 @@ export async function renderCarouselSlides(
         headline: slide.headline,
         body: slide.body,
         rendered_png_url: generateMockSlideImageUrl(slide, totalSlides, backgroundImageUrl),
-        background_image_url: backgroundImageUrl,
+        background_image_url: hasImagePlaceholder ? backgroundImageUrl : null,
       };
     }
   });
@@ -104,7 +148,6 @@ function generateMockSlideImageUrl(
   totalSlides: number,
   bgUrl?: string | null
 ): string {
-  // Return high-quality Unsplash image or dynamic SVG
   if (bgUrl && bgUrl.startsWith("http")) {
     return bgUrl;
   }

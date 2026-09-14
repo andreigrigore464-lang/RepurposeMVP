@@ -483,70 +483,102 @@ export default function WorkflowsPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Template Selection */}
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
+                {/* Template Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-zinc-300">
                       Brand Template
                     </label>
-                    <select
-                      value={runnerData.templateId}
-                      onChange={(e) => setRunnerData({ ...runnerData, templateId: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
-                    >
-                      {userTemplates.length > 0 && (
-                        <optgroup label="Your Custom Workspace Templates">
-                          {userTemplates.map((t) => (
-                            <option key={t.id} value={t.templatedTemplateId}>
-                              {t.name} ({t.aspectRatio})
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                      {starterTemplates.length > 0 && (
-                        <optgroup label="Starter Library Templates">
-                          {starterTemplates.map((t) => (
-                            <option key={t.id} value={t.templatedTemplateId}>
-                              {t.name} ({t.aspectRatio})
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
+                    <span className="text-[11px] text-zinc-400">
+                      Auto-detects layers, aspect ratio & image placeholders
+                    </span>
                   </div>
+                  <select
+                    value={runnerData.templateId}
+                    onChange={(e) => setRunnerData({ ...runnerData, templateId: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 font-medium"
+                  >
+                    {userTemplates.length > 0 && (
+                      <optgroup label="🌟 Your Custom Workspace Templates">
+                        {userTemplates.map((t) => (
+                          <option key={t.id} value={t.templatedTemplateId}>
+                            {t.name} ({t.aspectRatio || "Auto-detected"})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {starterTemplates.length > 0 && (
+                      <optgroup label="Starter Library Templates">
+                        {starterTemplates.map((t) => (
+                          <option key={t.id} value={t.templatedTemplateId}>
+                            {t.name} ({t.aspectRatio || "Auto-detected"})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </div>
 
-                  {/* Background Strategy */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Output Format Segmented Switch */}
                   <div>
                     <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
-                      Background Strategy
+                      Output Type
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 p-1 bg-zinc-950/80 border border-zinc-800 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => setRunnerData({ ...runnerData, outputFormat: "MULTI_SLIDE_CAROUSEL" })}
+                        className={`flex flex-col items-center justify-center py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          runnerData.outputFormat === "MULTI_SLIDE_CAROUSEL"
+                            ? "bg-emerald-500 text-zinc-950 shadow-md shadow-emerald-500/20"
+                            : "text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Layers className="w-3.5 h-3.5" />
+                          <span>Carousel (PDF)</span>
+                        </span>
+                        <span className={`text-[10px] mt-0.5 ${runnerData.outputFormat === "MULTI_SLIDE_CAROUSEL" ? "text-zinc-900 font-normal" : "text-zinc-500"}`}>
+                          5–7 Slide Deck
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setRunnerData({ ...runnerData, outputFormat: "SINGLE_IMAGE_CARD" })}
+                        className={`flex flex-col items-center justify-center py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          runnerData.outputFormat === "SINGLE_IMAGE_CARD"
+                            ? "bg-emerald-500 text-zinc-950 shadow-md shadow-emerald-500/20"
+                            : "text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <ImageIcon className="w-3.5 h-3.5" />
+                          <span>Single Card</span>
+                        </span>
+                        <span className={`text-[10px] mt-0.5 ${runnerData.outputFormat === "SINGLE_IMAGE_CARD" ? "text-zinc-900 font-normal" : "text-zinc-500"}`}>
+                          1 Key Insight Card
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Background Image Strategy */}
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
+                      Visual Background Strategy
                     </label>
                     <select
                       value={runnerData.backgroundStrategy}
                       onChange={(e) =>
                         setRunnerData({ ...runnerData, backgroundStrategy: e.target.value })
                       }
-                      className="w-full px-3 py-2 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
+                      className="w-full h-[46px] px-3.5 py-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
                     >
-                      <option value="ARTICLE_IMAGE_FIRST">Article Featured Image</option>
-                      <option value="STOCK_SEARCH_ONLY">Unsplash Stock Search (AI Keywords)</option>
-                      <option value="SOLID_COLOR_ONLY">Solid Brand Theme Only</option>
-                    </select>
-                  </div>
-
-                  {/* Output Format */}
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
-                      Output Format
-                    </label>
-                    <select
-                      value={runnerData.outputFormat}
-                      onChange={(e) =>
-                        setRunnerData({ ...runnerData, outputFormat: e.target.value })
-                      }
-                      className="w-full px-3 py-2 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
-                    >
-                      <option value="MULTI_SLIDE_CAROUSEL">Multi-Slide Carousel (PDF & PNGs)</option>
-                      <option value="SINGLE_IMAGE_CARD">Single Social Quote Card</option>
+                      <option value="ARTICLE_IMAGE_FIRST">📸 Article Photo First (Fallback to Stock)</option>
+                      <option value="STOCK_SEARCH_ONLY">🔍 Unsplash Stock Search (AI Keywords)</option>
+                      <option value="SOLID_COLOR_ONLY">🎨 Solid Brand Color Theme Only</option>
                     </select>
                   </div>
                 </div>
@@ -847,53 +879,97 @@ export default function WorkflowsPage() {
                 </div>
               )}
 
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-zinc-300">
+                    Brand Template
+                  </label>
+                  <span className="text-[11px] text-zinc-400">
+                    Auto-binds typography & aspect ratio
+                  </span>
+                </div>
+                <select
+                  value={workflowForm.brandTemplateId}
+                  onChange={(e) =>
+                    setWorkflowForm({ ...workflowForm, brandTemplateId: e.target.value })
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 font-medium"
+                >
+                  {userTemplates.length > 0 && (
+                    <optgroup label="🌟 Your Custom Workspace Templates">
+                      {userTemplates.map((t) => (
+                        <option key={t.id} value={t.templatedTemplateId}>
+                          {t.name} ({t.aspectRatio || "Auto-detected"})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {starterTemplates.length > 0 && (
+                    <optgroup label="Starter Library Templates">
+                      {starterTemplates.map((t) => (
+                        <option key={t.id} value={t.templatedTemplateId}>
+                          {t.name} ({t.aspectRatio || "Auto-detected"})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
-                    Brand Template
+                    Output Format
                   </label>
-                  <select
-                    value={workflowForm.brandTemplateId}
-                    onChange={(e) =>
-                      setWorkflowForm({ ...workflowForm, brandTemplateId: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
-                  >
-                    {userTemplates.length > 0 && (
-                      <optgroup label="Your Custom Workspace Templates">
-                        {userTemplates.map((t) => (
-                          <option key={t.id} value={t.templatedTemplateId}>
-                            {t.name} ({t.aspectRatio})
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {starterTemplates.length > 0 && (
-                      <optgroup label="Starter Library Templates">
-                        {starterTemplates.map((t) => (
-                          <option key={t.id} value={t.templatedTemplateId}>
-                            {t.name} ({t.aspectRatio})
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-zinc-950/80 border border-zinc-800 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setWorkflowForm({ ...workflowForm, outputFormat: "MULTI_SLIDE_CAROUSEL" })}
+                      className={`flex flex-col items-center justify-center py-2 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        workflowForm.outputFormat === "MULTI_SLIDE_CAROUSEL"
+                          ? "bg-emerald-500 text-zinc-950 shadow-sm"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">
+                        <Layers className="w-3 h-3" />
+                        <span>Carousel</span>
+                      </span>
+                      <span className="text-[9px] mt-0.5 opacity-80">PDF Deck</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setWorkflowForm({ ...workflowForm, outputFormat: "SINGLE_IMAGE_CARD" })}
+                      className={`flex flex-col items-center justify-center py-2 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        workflowForm.outputFormat === "SINGLE_IMAGE_CARD"
+                          ? "bg-emerald-500 text-zinc-950 shadow-sm"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">
+                        <ImageIcon className="w-3 h-3" />
+                        <span>Card</span>
+                      </span>
+                      <span className="text-[9px] mt-0.5 opacity-80">Single Post</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div>
                   <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
-                    Background Strategy
+                    Visual Strategy
                   </label>
                   <select
                     value={workflowForm.backgroundStrategy}
                     onChange={(e) =>
                       setWorkflowForm({ ...workflowForm, backgroundStrategy: e.target.value })
                     }
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
+                    className="w-full h-[46px] px-3.5 py-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="ARTICLE_IMAGE_FIRST">Article Featured Image</option>
-                    <option value="STOCK_SEARCH_ONLY">Unsplash Stock Photos</option>
-                    <option value="SOLID_COLOR_ONLY">Solid Brand Theme</option>
+                    <option value="ARTICLE_IMAGE_FIRST">📸 Article Photo First</option>
+                    <option value="STOCK_SEARCH_ONLY">🔍 Unsplash Stock</option>
+                    <option value="SOLID_COLOR_ONLY">🎨 Solid Brand Theme</option>
                   </select>
                 </div>
               </div>
