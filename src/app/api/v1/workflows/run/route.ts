@@ -5,6 +5,7 @@ import { resolveBackgroundImage, BackgroundImageStrategy } from "@/services/imag
 import { renderCarouselSlides } from "@/services/templated";
 import { stitchSlidesToPdf } from "@/services/pdfStitcher";
 import prisma from "@/lib/prisma";
+import { Prisma, PlatformType } from "@prisma/client";
 import { getOrCreateDefaultWorkspace, fallbackStore } from "@/lib/workspace";
 
 // POST /api/v1/workflows/run
@@ -174,11 +175,11 @@ export async function POST(req: Request) {
         data: {
           workspaceId,
           executionId: execution.id,
-          destinationPlatform: (destinationPlatform || "LINKEDIN") as any,
+          destinationPlatform: (destinationPlatform as PlatformType) || PlatformType.LINKEDIN,
           postTitle: scraped.title,
           postCaption,
           postHashtags,
-          slidesData: renderedSlides as any,
+          slidesData: renderedSlides as unknown as Prisma.InputJsonValue,
           pdfDocumentUrl: pdfUrl,
           status: "PENDING_APPROVAL",
         },

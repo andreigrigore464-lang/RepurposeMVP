@@ -7,7 +7,6 @@ import {
   Plus,
   Sparkles,
   Layers,
-  FileText,
   Download,
   Copy,
   Check,
@@ -15,11 +14,7 @@ import {
   ChevronRight,
   ChevronLeft,
   X,
-  ExternalLink,
-  ShieldCheck,
-  SlidersHorizontal,
   Trash2,
-  Share2,
   FileCheck,
   ArrowRight,
   ImageIcon,
@@ -68,7 +63,8 @@ interface GenerationResult {
 
 export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [templates, setTemplates] = useState<TemplateOption[]>([]);
+  const [userTemplates, setUserTemplates] = useState<TemplateOption[]>([]);
+  const [starterTemplates, setStarterTemplates] = useState<TemplateOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Repurpose Runner Modal & Execution State
@@ -83,7 +79,7 @@ export default function WorkflowsPage() {
   // Form State for Instant Runner
   const [runnerData, setRunnerData] = useState({
     articleUrl: "https://example.com/scale-content-repurposing",
-    templateId: "tmpl_hook_square_01",
+    templateId: "",
     backgroundStrategy: "ARTICLE_IMAGE_FIRST",
     outputFormat: "MULTI_SLIDE_CAROUSEL",
     destinationPlatform: "LINKEDIN",
@@ -96,49 +92,89 @@ export default function WorkflowsPage() {
     sourcePlatform: "CUSTOM_URL",
     sourceRssFeedUrl: "",
     destinationPlatform: "LINKEDIN",
-    brandTemplateId: "tmpl_hook_square_01",
+    brandTemplateId: "",
     outputFormat: "MULTI_SLIDE_CAROUSEL",
     backgroundStrategy: "ARTICLE_IMAGE_FIRST",
     isAutopilot: false,
   });
 
-  const fetchWorkflows = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/workflows");
-      if (res.ok) {
-        const data = await res.json();
-        setWorkflows(data.workflows || []);
+      setIsLoading(true);
+      const [wfRes, tmplRes] = await Promise.all([
+        fetch("/api/v1/workflows"),
+        fetch("/api/v1/templates"),
+      ]);
+      if (wfRes.ok) {
+        const wfData = await wfRes.json();
+        setWorkflows(wfData.workflows || []);
+      }
+      if (tmplRes.ok) {
+        const tmplData = await tmplRes.json();
+        const userTmpls: TemplateOption[] = tmplData.templates || [];
+        const starterTmpls: TemplateOption[] = tmplData.starterTemplates || [];
+        setUserTemplates(userTmpls);
+        setStarterTemplates(starterTmpls);
+
+        const defaultTmplId =
+          userTmpls[0]?.templatedTemplateId ||
+          starterTmpls[0]?.templatedTemplateId ||
+          "tmpl_hook_square_01";
+
+        setRunnerData((prev) => ({
+          ...prev,
+          templateId: prev.templateId || defaultTmplId,
+        }));
+        setWorkflowForm((prev) => ({
+          ...prev,
+          brandTemplateId: prev.brandTemplateId || defaultTmplId,
+        }));
       }
     } catch (err) {
-      console.error("Failed to fetch workflows:", err);
+      console.error("Failed to load workflow data:", err);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const fetchTemplates = useCallback(async () => {
-    try {
-      const res = await fetch("/api/v1/templates");
-      if (res.ok) {
-        const data = await res.json();
-        const available = (data.templates || []).concat(data.starterTemplates || []);
-        setTemplates(available);
-        if (available.length > 0 && !runnerData.templateId) {
-          setRunnerData((prev) => ({
-            ...prev,
-            templateId: available[0].templatedTemplateId,
-          }));
-        }
-      }
-    } catch (err) {
-      console.error("Failed to fetch templates:", err);
-    }
-  }, [runnerData.templateId]);
-
   useEffect(() => {
-    fetchWorkflows();
-    fetchTemplates();
-  }, [fetchWorkflows, fetchTemplates]);
+    let isMounted = true;
+    Promise.all([
+      fetch("/api/v1/workflows").then((res) => (res.ok ? res.json() : { workflows: [] })),
+      fetch("/api/v1/templates").then((res) => (res.ok ? res.json() : { templates: [], starterTemplates: [] })),
+    ])
+      .then(([wfData, tmplData]) => {
+        if (!isMounted) return;
+        setWorkflows(wfData.workflows || []);
+        const userTmpls: TemplateOption[] = tmplData.templates || [];
+        const starterTmpls: TemplateOption[] = tmplData.starterTemplates || [];
+        setUserTemplates(userTmpls);
+        setStarterTemplates(starterTmpls);
+
+        const defaultTmplId =
+          userTmpls[0]?.templatedTemplateId ||
+          starterTmpls[0]?.templatedTemplateId ||
+          "tmpl_hook_square_01";
+
+        setRunnerData((prev) => ({
+          ...prev,
+          templateId: prev.templateId || defaultTmplId,
+        }));
+        setWorkflowForm((prev) => ({
+          ...prev,
+          brandTemplateId: prev.brandTemplateId || defaultTmplId,
+        }));
+        setIsLoading(false);
+      })
+      .catch((err) => {
+        console.error("Failed to load workflow data:", err);
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Execute Pipeline Run
   const handleExecuteRun = async (e: React.FormEvent) => {
@@ -190,7 +226,7 @@ export default function WorkflowsPage() {
       });
       if (res.ok) {
         setIsCreateModalOpen(false);
-        await fetchWorkflows();
+        await fetchData();
       }
     } catch (err) {
       console.error("Failed to save workflow:", err);
@@ -458,14 +494,24 @@ export default function WorkflowsPage() {
                       onChange={(e) => setRunnerData({ ...runnerData, templateId: e.target.value })}
                       className="w-full px-3 py-2 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
                     >
-                      <option value="tmpl_hook_square_01">Modern Carousel Hook (1:1)</option>
-                      <option value="tmpl_content_portrait_02">LinkedIn Portrait (4:5)</option>
-                      <option value="tmpl_quote_landscape_03">Social Quote Card (16:9)</option>
-                      {templates.map((t) => (
-                        <option key={t.id} value={t.templatedTemplateId}>
-                          {t.name} ({t.aspectRatio})
-                        </option>
-                      ))}
+                      {userTemplates.length > 0 && (
+                        <optgroup label="Your Custom Workspace Templates">
+                          {userTemplates.map((t) => (
+                            <option key={t.id} value={t.templatedTemplateId}>
+                              {t.name} ({t.aspectRatio})
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {starterTemplates.length > 0 && (
+                        <optgroup label="Starter Library Templates">
+                          {starterTemplates.map((t) => (
+                            <option key={t.id} value={t.templatedTemplateId}>
+                              {t.name} ({t.aspectRatio})
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
 
@@ -813,14 +859,24 @@ export default function WorkflowsPage() {
                     }
                     className="w-full px-3 py-2 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="tmpl_hook_square_01">Modern Carousel Hook (1:1)</option>
-                    <option value="tmpl_content_portrait_02">LinkedIn Portrait (4:5)</option>
-                    <option value="tmpl_quote_landscape_03">Social Quote Card (16:9)</option>
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.templatedTemplateId}>
-                        {t.name}
-                      </option>
-                    ))}
+                    {userTemplates.length > 0 && (
+                      <optgroup label="Your Custom Workspace Templates">
+                        {userTemplates.map((t) => (
+                          <option key={t.id} value={t.templatedTemplateId}>
+                            {t.name} ({t.aspectRatio})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {starterTemplates.length > 0 && (
+                      <optgroup label="Starter Library Templates">
+                        {starterTemplates.map((t) => (
+                          <option key={t.id} value={t.templatedTemplateId}>
+                            {t.name} ({t.aspectRatio})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
 

@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Inbox,
   CheckCircle2,
-  Clock,
   Download,
   Copy,
   Check,
@@ -12,9 +11,7 @@ import {
   ChevronRight,
   Trash2,
   RefreshCw,
-  ExternalLink,
   Sparkles,
-  Share2,
 } from "lucide-react";
 
 interface RenderedSlide {
@@ -60,10 +57,26 @@ export default function ApprovalInboxPage() {
   }, []);
 
   useEffect(() => {
-    fetchDrafts();
-  }, [fetchDrafts]);
+    let isMounted = true;
+    fetch("/api/v1/inbox")
+      .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+      .then((data) => {
+        if (isMounted) {
+          setDrafts(data.drafts || []);
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch drafts:", err);
+        if (isMounted) setIsLoading(false);
+      });
 
-  const handleUpdateStatus = async (id: string, newStatus: string) => {
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleUpdateStatus = async (id: string, newStatus: DraftItem["status"]) => {
     try {
       const res = await fetch("/api/v1/inbox", {
         method: "PATCH",
@@ -72,7 +85,7 @@ export default function ApprovalInboxPage() {
       });
       if (res.ok) {
         setDrafts((prev) =>
-          prev.map((d) => (d.id === id ? { ...d, status: newStatus as any } : d))
+          prev.map((d) => (d.id === id ? { ...d, status: newStatus } : d))
         );
       }
     } catch (err) {
@@ -121,35 +134,46 @@ export default function ApprovalInboxPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 bg-zinc-900 p-1 rounded-xl border border-zinc-800">
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setActiveFilter("ALL")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-              activeFilter === "ALL" ? "bg-zinc-800 text-white shadow-sm" : "text-zinc-400 hover:text-zinc-200"
-            }`}
+            onClick={() => fetchDrafts()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-semibold transition-colors cursor-pointer"
+            title="Refresh inbox drafts"
           >
-            All ({drafts.length})
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-emerald-400" : "text-zinc-400"}`} />
+            <span>Refresh</span>
           </button>
-          <button
-            onClick={() => setActiveFilter("PENDING_APPROVAL")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-              activeFilter === "PENDING_APPROVAL"
-                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            Pending ({drafts.filter((d) => d.status === "PENDING_APPROVAL").length})
-          </button>
-          <button
-            onClick={() => setActiveFilter("APPROVED")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-              activeFilter === "APPROVED"
-                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            Approved ({drafts.filter((d) => d.status === "APPROVED" || d.status === "PUBLISHED").length})
-          </button>
+
+          <div className="flex items-center gap-2 bg-zinc-900 p-1 rounded-xl border border-zinc-800">
+            <button
+              onClick={() => setActiveFilter("ALL")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeFilter === "ALL" ? "bg-zinc-800 text-white shadow-sm" : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              All ({drafts.length})
+            </button>
+            <button
+              onClick={() => setActiveFilter("PENDING_APPROVAL")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeFilter === "PENDING_APPROVAL"
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Pending ({drafts.filter((d) => d.status === "PENDING_APPROVAL").length})
+            </button>
+            <button
+              onClick={() => setActiveFilter("APPROVED")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeFilter === "APPROVED"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Approved ({drafts.filter((d) => d.status === "APPROVED" || d.status === "PUBLISHED").length})
+            </button>
+          </div>
         </div>
       </div>
 
