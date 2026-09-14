@@ -1,29 +1,143 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getOrCreateDefaultWorkspace, fallbackStore } from "@/lib/workspace";
+import { getOrCreateDefaultWorkspace, fallbackStore, STARTER_TEMPLATES } from "@/lib/workspace";
+import { listTemplatedTemplates, extractLayerMappings } from "@/lib/templated";
 
 // GET /api/v1/templates
-export async function GET() {
+// Returns templates for the workspace, optionally syncing with Templated.io cloud
+export async function GET(req: Request) {
   try {
-    const workspace = await getOrCreateDefaultWorkspace();
+    const { searchParams } = new URL(req.url);
+    const requestedWorkspaceId = searchParams.get("workspaceId");
+    const shouldSync = searchParams.get("sync") === "true";
 
+    const defaultWorkspace = await getOrCreateDefaultWorkspace();
+    const workspaceId = requestedWorkspaceId || defaultWorkspace.id;
+
+    let templates: Array<{
+      id: string;
+      workspaceId: string;
+      brandKitId?: string | null;
+      name: string;
+      templatedTemplateId: string;
+      previewImageUrl: string;
+      aspectRatio: string;
+      hasBackgroundPlaceholder: boolean;
+      layerMappings: Record<string, string>;
+      createdAt: string | Date;
+      updatedAt?: string | Date;
+    }> = [];
+
+    // 1. Fetch from Database / Fallback Store
     try {
-      let templates = await prisma.brandTemplate.findMany({
-        where: { workspaceId: workspace.id },
+      const dbTemplates = await prisma.brandTemplate.findMany({
+        where: { workspaceId },
         orderBy: { createdAt: "desc" },
       });
+      templates = dbTemplates.map((t) => ({
+        ...t,
+        layerMappings: typeof t.layerMappings === "object" && t.layerMappings !== null
+          ? (t.layerMappings as Record<string, string>)
+          : {},
+      }));
+    } catch {
+      templates = fallbackStore.templates.filter((t) => t.workspaceId === workspaceId);
+    }
 
-      // Auto-seed starter templates if empty
-      if (templates.length === 0) {
-        const defaultKit = await prisma.brandKit.findFirst({
-          where: { workspaceId: workspace.id },
-        });
+    // 2. Optionally sync with Templated.io cloud for this workspace external_id
+    if (shouldSync && process.env.TEMPLATED_API_KEY) {
+      try {
+        const cloudTemplates = await listTemplatedTemplates(workspaceId);
+        for (const cloudTmpl of cloudTemplates) {
+          const exists = templates.some((t) => t.templatedTemplateId === cloudTmpl.id);
+          if (!exists) {
+            const width = cloudTmpl.width || 1080;
+            const height = cloudTmpl.height || 1080;
+            const aspectRatio = width === height ? "1:1" : width > height ? "16:9" : "4:5";
+            const layerMappings = extractLayerMappings(cloudTmpl.layers || []);
+            const previewImageUrl =
+              cloudTmpl.preview_url ||
+              cloudTmpl.thumbnail_url ||
+              "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop";
 
-        for (const starter of fallbackStore.templates) {
-          await prisma.brandTemplate.create({
+            try {
+              const created = await prisma.brandTemplate.create({
+                data: {
+                  workspaceId,
+                  name: cloudTmpl.name || "Templated Cloud Template",
+                  templatedTemplateId: cloudTmpl.id,
+                  previewImageUrl,
+                  aspectRatio,
+                  hasBackgroundPlaceholder: true,
+                  layerMappings,
+                },
+              });
+              templates.unshift({
+                ...created,
+                layerMappings: created.layerMappings as Record<string, string>,
+              });
+            } catch {
+              const memoryTmpl = {
+                id: `tmpl-cloud-${Date.now()}-${cloudTmpl.id}`,
+                workspaceId,
+                name: cloudTmpl.name || "Templated Cloud Template",
+                templatedTemplateId: cloudTmpl.id,
+                previewImageUrl,
+                aspectRatio,
+                hasBackgroundPlaceholder: true,
+                layerMappings,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              };
+              fallbackStore.templates.unshift(memoryTmpl);
+              templates.unshift(memoryTmpl);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[Templates Sync Warning]:", err);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      workspace: {
+        id: workspaceId,
+        name: defaultWorkspace.name,
+      },
+      templates,
+      starterTemplates: STARTER_TEMPLATES,
+    });
+  } catch (error) {
+    console.error("Error fetching templates:", error);
+    return NextResponse.json({
+      success: true,
+      templates: fallbackStore.templates,
+      starterTemplates: STARTER_TEMPLATES,
+    });
+  }
+}
+
+// POST /api/v1/templates (Create / Update / Seed Starter)
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const defaultWorkspace = await getOrCreateDefaultWorkspace();
+    const workspaceId = body.workspaceId || defaultWorkspace.id;
+
+    // Action: Seed/Import Starter Template into User Workspace
+    if (body.action === "seed_starters" || body.action === "import_starter") {
+      const targetStarterId = body.starterId;
+      const startersToImport = targetStarterId
+        ? STARTER_TEMPLATES.filter((s) => s.id === targetStarterId || s.templatedTemplateId === targetStarterId)
+        : STARTER_TEMPLATES;
+
+      const imported = [];
+      for (const starter of startersToImport) {
+        try {
+          const created = await prisma.brandTemplate.create({
             data: {
-              workspaceId: workspace.id,
-              brandKitId: defaultKit?.id,
+              workspaceId,
               name: starter.name,
               templatedTemplateId: starter.templatedTemplateId,
               previewImageUrl: starter.previewImageUrl,
@@ -32,30 +146,27 @@ export async function GET() {
               layerMappings: starter.layerMappings,
             },
           });
+          imported.push(created);
+        } catch {
+          const memoryTmpl = {
+            id: `tmpl-local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            workspaceId,
+            name: starter.name,
+            templatedTemplateId: starter.templatedTemplateId,
+            previewImageUrl: starter.previewImageUrl,
+            aspectRatio: starter.aspectRatio,
+            hasBackgroundPlaceholder: starter.hasBackgroundPlaceholder,
+            layerMappings: starter.layerMappings,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          fallbackStore.templates.unshift(memoryTmpl);
+          imported.push(memoryTmpl);
         }
-
-        templates = await prisma.brandTemplate.findMany({
-          where: { workspaceId: workspace.id },
-          orderBy: { createdAt: "desc" },
-        });
       }
 
-      return NextResponse.json({ success: true, templates });
-    } catch {
-      // Database offline fallback
-      return NextResponse.json({ success: true, templates: fallbackStore.templates });
+      return NextResponse.json({ success: true, imported, message: "Starter templates imported successfully" });
     }
-  } catch (error) {
-    console.error("Error fetching templates:", error);
-    return NextResponse.json({ success: true, templates: fallbackStore.templates });
-  }
-}
-
-// POST /api/v1/templates (Callback / Create)
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const workspace = await getOrCreateDefaultWorkspace();
 
     const {
       id,
@@ -85,7 +196,7 @@ export async function POST(req: Request) {
       let defaultKitId = brandKitId;
       if (!defaultKitId) {
         const kit = await prisma.brandKit.findFirst({
-          where: { workspaceId: workspace.id },
+          where: { workspaceId },
         });
         defaultKitId = kit?.id;
       }
@@ -112,7 +223,7 @@ export async function POST(req: Request) {
       // Create new template
       const template = await prisma.brandTemplate.create({
         data: {
-          workspaceId: workspace.id,
+          workspaceId,
           brandKitId: defaultKitId,
           name,
           templatedTemplateId,
@@ -147,7 +258,7 @@ export async function POST(req: Request) {
 
       const newTmpl = {
         id: `tmpl-local-${Date.now()}`,
-        workspaceId: workspace.id,
+        workspaceId,
         name,
         templatedTemplateId,
         previewImageUrl:

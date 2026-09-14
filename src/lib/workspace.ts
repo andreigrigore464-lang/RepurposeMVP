@@ -22,6 +22,57 @@ export interface MockWorkspace {
   brandKits: MockBrandKit[];
 }
 
+export const STARTER_TEMPLATES = [
+  {
+    id: "tmpl-starter-1",
+    name: "Modern Carousel Hook (1:1)",
+    templatedTemplateId: "tmpl_hook_square_01",
+    previewImageUrl:
+      "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
+    aspectRatio: "1:1",
+    hasBackgroundPlaceholder: true,
+    layerMappings: {
+      headline_layer: "headline_text",
+      body_layer: "body_text",
+      background_layer: "background_image",
+      logo_layer: "brand_logo",
+      counter_layer: "slide_counter",
+    },
+  },
+  {
+    id: "tmpl-starter-2",
+    name: "LinkedIn Deep-Dive Slide (4:5)",
+    templatedTemplateId: "tmpl_content_portrait_02",
+    previewImageUrl:
+      "https://images.unsplash.com/photo-1557683316-973673baf926?q=80&w=1000&auto=format&fit=crop",
+    aspectRatio: "4:5",
+    hasBackgroundPlaceholder: true,
+    layerMappings: {
+      headline_layer: "headline_text",
+      body_layer: "body_text",
+      background_layer: "background_image",
+      logo_layer: "brand_logo",
+      counter_layer: "slide_counter",
+    },
+  },
+  {
+    id: "tmpl-starter-3",
+    name: "Viral Social Card / Quote (16:9)",
+    templatedTemplateId: "tmpl_quote_landscape_03",
+    previewImageUrl:
+      "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=1000&auto=format&fit=crop",
+    aspectRatio: "16:9",
+    hasBackgroundPlaceholder: false,
+    layerMappings: {
+      headline_layer: "headline_text",
+      body_layer: "body_text",
+      background_layer: "background_image",
+      logo_layer: "brand_logo",
+      counter_layer: "slide_counter",
+    },
+  },
+];
+
 // In-memory fallback if PostgreSQL is not active
 export const fallbackStore: {
   workspace: MockWorkspace;
@@ -64,65 +115,7 @@ export const fallbackStore: {
       },
     ],
   },
-  templates: [
-    {
-      id: "tmpl-starter-1",
-      workspaceId: "00000000-0000-0000-0000-000000000001",
-      name: "Modern Carousel Hook (1:1)",
-      templatedTemplateId: "tmpl_hook_square_01",
-      previewImageUrl:
-        "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
-      aspectRatio: "1:1",
-      hasBackgroundPlaceholder: true,
-      layerMappings: {
-        headline_layer: "headline_text",
-        body_layer: "body_text",
-        background_layer: "background_image",
-        logo_layer: "brand_logo",
-        counter_layer: "slide_counter",
-      },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: "tmpl-starter-2",
-      workspaceId: "00000000-0000-0000-0000-000000000001",
-      name: "LinkedIn Deep-Dive Slide (4:5)",
-      templatedTemplateId: "tmpl_content_portrait_02",
-      previewImageUrl:
-        "https://images.unsplash.com/photo-1557683316-973673baf926?q=80&w=1000&auto=format&fit=crop",
-      aspectRatio: "4:5",
-      hasBackgroundPlaceholder: true,
-      layerMappings: {
-        headline_layer: "headline_text",
-        body_layer: "body_text",
-        background_layer: "background_image",
-        logo_layer: "brand_logo",
-        counter_layer: "slide_counter",
-      },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: "tmpl-starter-3",
-      workspaceId: "00000000-0000-0000-0000-000000000001",
-      name: "Viral Social Card / Quote (16:9)",
-      templatedTemplateId: "tmpl_quote_landscape_03",
-      previewImageUrl:
-        "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=1000&auto=format&fit=crop",
-      aspectRatio: "16:9",
-      hasBackgroundPlaceholder: false,
-      layerMappings: {
-        headline_layer: "headline_text",
-        body_layer: "body_text",
-        background_layer: "background_image",
-        logo_layer: "brand_logo",
-        counter_layer: "slide_counter",
-      },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  ],
+  templates: [],
 };
 
 /**

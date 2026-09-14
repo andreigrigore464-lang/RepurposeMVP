@@ -8,11 +8,9 @@ import {
   RefreshCw,
   Sparkles,
   Type,
-  Sliders,
   Image as ImageIcon,
   Trash2,
   Eye,
-  Layers,
   ArrowRight,
   Info,
 } from "lucide-react";
@@ -82,7 +80,7 @@ export default function BrandKitsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [, setUploadProgress] = useState<number>(0);
   const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
   const [previewMode, setPreviewMode] = useState<"carousel" | "quote">("carousel");
   const [isDragOver, setIsDragOver] = useState(false);
