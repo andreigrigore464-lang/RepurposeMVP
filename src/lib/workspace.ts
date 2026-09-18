@@ -1,4 +1,5 @@
 import prisma from "./prisma";
+import { DynamicTemplateConfig } from "./templated";
 
 export const DEFAULT_WORKSPACE_SLUG = "default-workspace";
 
@@ -22,7 +23,25 @@ export interface MockWorkspace {
   brandKits: MockBrandKit[];
 }
 
-export const STARTER_TEMPLATES = [
+export interface StarterTemplateConfig {
+  id: string;
+  name: string;
+  templatedTemplateId: string;
+  previewImageUrl: string;
+  aspectRatio: string;
+  hasBackgroundPlaceholder: boolean;
+  isConfigured: boolean;
+  layerMappings: {
+    headline_layer: string;
+    body_layer: string;
+    background_layer: string;
+    logo_layer: string;
+    counter_layer: string;
+  };
+  dynamicConfig: DynamicTemplateConfig;
+}
+
+export const STARTER_TEMPLATES: StarterTemplateConfig[] = [
   {
     id: "tmpl-starter-1",
     name: "Modern Carousel Hook (1:1)",
@@ -31,12 +50,66 @@ export const STARTER_TEMPLATES = [
       "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
     aspectRatio: "1:1",
     hasBackgroundPlaceholder: true,
+    isConfigured: true,
     layerMappings: {
       headline_layer: "headline_text",
       body_layer: "body_text",
       background_layer: "background_image",
       logo_layer: "brand_logo",
       counter_layer: "slide_counter",
+    },
+    dynamicConfig: {
+      version: 2,
+      isConfigured: true,
+      configuredAt: new Date().toISOString(),
+      fields: [
+        {
+          id: "field-starter1-headline",
+          layerKey: "headline_text",
+          type: "text",
+          role: "headline",
+          label: "Headline / Slide Hook",
+          promptInstruction: "High-impact opening headline or hook (punchy, max 8-12 words)",
+          characterLimit: 80,
+          isRequired: true,
+        },
+        {
+          id: "field-starter1-body",
+          layerKey: "body_text",
+          type: "text",
+          role: "body",
+          label: "Body Copy / Takeaway",
+          promptInstruction: "Concise explanatory paragraph or core takeaway",
+          characterLimit: 180,
+          isRequired: true,
+        },
+        {
+          id: "field-starter1-bg",
+          layerKey: "background_image",
+          type: "image",
+          role: "hero_image",
+          label: "Hero Background Visual",
+          promptInstruction: "Contextual featured photo or high quality background visual",
+          isRequired: false,
+        },
+        {
+          id: "field-starter1-logo",
+          layerKey: "brand_logo",
+          type: "image",
+          role: "brand_logo",
+          label: "Brand Logo / Avatar",
+          isRequired: false,
+        },
+        {
+          id: "field-starter1-counter",
+          layerKey: "slide_counter",
+          type: "counter",
+          role: "slide_counter",
+          label: "Slide Counter Index",
+          characterLimit: 10,
+          isRequired: false,
+        },
+      ],
     },
   },
   {
@@ -47,12 +120,66 @@ export const STARTER_TEMPLATES = [
       "https://images.unsplash.com/photo-1557683316-973673baf926?q=80&w=1000&auto=format&fit=crop",
     aspectRatio: "4:5",
     hasBackgroundPlaceholder: true,
+    isConfigured: true,
     layerMappings: {
       headline_layer: "headline_text",
       body_layer: "body_text",
       background_layer: "background_image",
       logo_layer: "brand_logo",
       counter_layer: "slide_counter",
+    },
+    dynamicConfig: {
+      version: 2,
+      isConfigured: true,
+      configuredAt: new Date().toISOString(),
+      fields: [
+        {
+          id: "field-starter2-headline",
+          layerKey: "headline_text",
+          type: "text",
+          role: "headline",
+          label: "Headline / Slide Hook",
+          promptInstruction: "Engaging step title or slide takeaway",
+          characterLimit: 75,
+          isRequired: true,
+        },
+        {
+          id: "field-starter2-body",
+          layerKey: "body_text",
+          type: "text",
+          role: "body",
+          label: "Body Copy / Takeaway",
+          promptInstruction: "Detailed breakdown or key insights paragraph",
+          characterLimit: 220,
+          isRequired: true,
+        },
+        {
+          id: "field-starter2-bg",
+          layerKey: "background_image",
+          type: "image",
+          role: "hero_image",
+          label: "Hero Background Visual",
+          promptInstruction: "Clean aesthetic background photo matching the subject",
+          isRequired: false,
+        },
+        {
+          id: "field-starter2-logo",
+          layerKey: "brand_logo",
+          type: "image",
+          role: "brand_logo",
+          label: "Brand Logo / Avatar",
+          isRequired: false,
+        },
+        {
+          id: "field-starter2-counter",
+          layerKey: "slide_counter",
+          type: "counter",
+          role: "slide_counter",
+          label: "Slide Counter Index",
+          characterLimit: 10,
+          isRequired: false,
+        },
+      ],
     },
   },
   {
@@ -63,12 +190,57 @@ export const STARTER_TEMPLATES = [
       "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=1000&auto=format&fit=crop",
     aspectRatio: "16:9",
     hasBackgroundPlaceholder: false,
+    isConfigured: true,
     layerMappings: {
       headline_layer: "headline_text",
       body_layer: "body_text",
       background_layer: "background_image",
       logo_layer: "brand_logo",
       counter_layer: "slide_counter",
+    },
+    dynamicConfig: {
+      version: 2,
+      isConfigured: true,
+      configuredAt: new Date().toISOString(),
+      fields: [
+        {
+          id: "field-starter3-headline",
+          layerKey: "headline_text",
+          type: "text",
+          role: "headline",
+          label: "Headline / Slide Hook",
+          promptInstruction: "Memorable quote or bold statement",
+          characterLimit: 90,
+          isRequired: true,
+        },
+        {
+          id: "field-starter3-body",
+          layerKey: "body_text",
+          type: "text",
+          role: "quote_author",
+          label: "Quote Author / Attribution",
+          promptInstruction: "Author name, source publication, or key metric citation",
+          characterLimit: 60,
+          isRequired: false,
+        },
+        {
+          id: "field-starter3-bg",
+          layerKey: "background_image",
+          type: "image",
+          role: "hero_image",
+          label: "Hero Background Visual",
+          promptInstruction: "Vibrant abstract or brand visual fill",
+          isRequired: false,
+        },
+        {
+          id: "field-starter3-logo",
+          layerKey: "brand_logo",
+          type: "image",
+          role: "brand_logo",
+          label: "Brand Logo / Avatar",
+          isRequired: false,
+        },
+      ],
     },
   },
 ];
@@ -85,16 +257,13 @@ export const fallbackStore: {
     previewImageUrl: string;
     aspectRatio: string;
     hasBackgroundPlaceholder: boolean;
-    layerMappings: {
-      headline_layer: string;
-      body_layer: string;
-      background_layer: string;
-      logo_layer: string;
-      counter_layer: string;
-    };
+    isConfigured?: boolean;
+    layerMappings: Record<string, unknown>;
+    dynamicConfig?: DynamicTemplateConfig;
     createdAt: string;
     updatedAt: string;
   }>;
+
   workflows: Array<{
     id: string;
     workspaceId: string;

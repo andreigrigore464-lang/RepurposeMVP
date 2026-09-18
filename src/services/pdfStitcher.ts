@@ -40,51 +40,81 @@ export async function stitchSlidesToPdf(
     pdfDoc.setKeywords(options.keywords);
   }
 
-  for (let i = 0; i < imageUrls.length; i++) {
-    const imageUrl = imageUrls[i];
-    try {
-      let imageBytes: Uint8Array;
-
-      // Handle base64 data URLs or HTTP URLs
-      if (imageUrl.startsWith("data:image")) {
-        const base64Data = imageUrl.split(",")[1];
-        imageBytes = Buffer.from(base64Data, "base64");
-      } else {
-        const res = await fetch(imageUrl);
+  // 1. Concurrently fetch all slide image buffers with timeout
+  const imageResults = await Promise.all(
+    imageUrls.map(async (imageUrl, idx) => {
+      try {
+        if (imageUrl.startsWith("data:image")) {
+          const base64Data = imageUrl.split(",")[1];
+          return { index: idx, buffer: Buffer.from(base64Data, "base64"), url: imageUrl };
+        }
+        const res = await fetch(imageUrl, {
+          headers: { Accept: "image/png, image/jpeg, image/*" },
+          signal: AbortSignal.timeout(5000),
+        });
         if (!res.ok) {
-          throw new Error(`Failed to fetch image ${imageUrl} (Status: ${res.status})`);
+          return { index: idx, buffer: null, url: imageUrl };
         }
         const arrayBuffer = await res.arrayBuffer();
-        imageBytes = new Uint8Array(arrayBuffer);
+        return { index: idx, buffer: new Uint8Array(arrayBuffer), url: imageUrl };
+      } catch (err) {
+        console.warn(`[PdfStitcher] Fetch failed for slide #${idx + 1} (${imageUrl}):`, err);
+        return { index: idx, buffer: null, url: imageUrl };
       }
+    })
+  );
 
-      // Detect PNG vs JPG by inspecting magic bytes
-      const isPng =
-        imageBytes[0] === 0x89 &&
-        imageBytes[1] === 0x50 &&
-        imageBytes[2] === 0x4e &&
-        imageBytes[3] === 0x47;
+  for (const item of imageResults) {
+    let embedded = false;
+    if (item.buffer && item.buffer.length > 8) {
+      try {
+        const bytes = item.buffer;
+        const isPng =
+          bytes[0] === 0x89 &&
+          bytes[1] === 0x50 &&
+          bytes[2] === 0x4e &&
+          bytes[3] === 0x47;
+        const isJpg = bytes[0] === 0xff && bytes[1] === 0xd8;
 
-      let embeddedImage;
-      if (isPng) {
-        embeddedImage = await pdfDoc.embedPng(imageBytes);
-      } else {
-        embeddedImage = await pdfDoc.embedJpg(imageBytes);
+        let embeddedImage;
+        if (isPng) {
+          embeddedImage = await pdfDoc.embedPng(bytes);
+        } else if (isJpg) {
+          embeddedImage = await pdfDoc.embedJpg(bytes);
+        } else {
+          // Attempt embedding as PNG or JPG
+          try {
+            embeddedImage = await pdfDoc.embedPng(bytes);
+          } catch {
+            embeddedImage = await pdfDoc.embedJpg(bytes);
+          }
+        }
+
+        if (embeddedImage) {
+          const { width, height } = embeddedImage.scale(1.0);
+          const page = pdfDoc.addPage([width, height]);
+          page.drawImage(embeddedImage, {
+            x: 0,
+            y: 0,
+            width,
+            height,
+          });
+          embedded = true;
+        }
+      } catch (embErr) {
+        console.warn(`[PdfStitcher] Image embed fallback for slide #${item.index + 1}:`, embErr);
       }
+    }
 
-      const { width, height } = embeddedImage.scale(1.0);
-      const page = pdfDoc.addPage([width, height]);
-      page.drawImage(embeddedImage, {
+    if (!embedded) {
+      // Fallback blank slide with page number
+      const page = pdfDoc.addPage([1080, 1080]);
+      page.drawRectangle({
         x: 0,
         y: 0,
-        width,
-        height,
+        width: 1080,
+        height: 1080,
       });
-    } catch (slideErr) {
-      console.warn(`[PdfStitcher] Failed to embed slide image #${i + 1} (${imageUrl}):`, slideErr);
-      // Create a fallback text page
-      const page = pdfDoc.addPage([1080, 1080]);
-      page.drawText(`Slide ${i + 1}`, { x: 50, y: 1000, size: 24 });
     }
   }
 

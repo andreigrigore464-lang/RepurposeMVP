@@ -26,6 +26,7 @@ import {
   ExternalLink,
   ShieldCheck,
   Zap,
+  Activity,
 } from "lucide-react";
 
 function LinkedinIcon({ className }: { className?: string }) {
@@ -115,6 +116,13 @@ interface GenerationResult {
   timings?: Record<string, number>;
 }
 
+interface ToastMessage {
+  type: "success" | "error" | "info";
+  message: string;
+}
+
+type FilterCategory = "ALL" | "ACTIVE" | "PAUSED" | "AUTOPILOT" | "APPROVAL_GATED";
+
 function WorkflowsContent() {
   const searchParams = useSearchParams();
   const runIdParam = searchParams.get("runId");
@@ -124,10 +132,8 @@ function WorkflowsContent() {
   const [starterTemplates, setStarterTemplates] = useState<TemplateOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Filter & Search state
-  const [filterType, setFilterType] = useState<"ALL" | "ACTIVE" | "PAUSED">("ALL");
+  const [filterType, setFilterType] = useState<FilterCategory>("ALL");
 
-  // Runner Modal State
   const [isRunnerOpen, setIsRunnerOpen] = useState(false);
   const [selectedWorkflowForRun, setSelectedWorkflowForRun] = useState<Workflow | null>(null);
   const [testUrlInput, setTestUrlInput] = useState<string>("");
@@ -136,8 +142,17 @@ function WorkflowsContent() {
   const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
   const [activeSlideIndex, setActiveSlideIndex] = useState<number>(0);
   const [copiedCaption, setCopiedCaption] = useState(false);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [workflowToDelete, setWorkflowToDelete] = useState<Workflow | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  // Quick Standalone Runner Data (for instant custom repurposing)
+  const showToast = useCallback((type: "success" | "error" | "info", message: string) => {
+    setToast({ type, message });
+    setTimeout(() => {
+      setToast((curr) => (curr?.message === message ? null : curr));
+    }, 4000);
+  }, []);
+
   const [customRunnerData, setCustomRunnerData] = useState({
     articleUrl: "https://example.com/scale-content-repurposing",
     templateId: "tmpl_hook_square_01",
@@ -170,16 +185,16 @@ function WorkflowsContent() {
       }
     } catch (err) {
       console.error("Failed to load workflows:", err);
+      showToast("error", "Failed to load workflows and templates.");
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  // Handle runId query parameter to automatically launch runner
   useEffect(() => {
     if (runIdParam && workflows.length > 0) {
       const target = workflows.find((w) => w.id === runIdParam);
@@ -189,32 +204,97 @@ function WorkflowsContent() {
     }
   }, [runIdParam, workflows]);
 
+  // Keyboard navigation for slide preview modal
+  useEffect(() => {
+    if (!isRunnerOpen || !generationResult?.draft?.slidesData?.length) return;
+
+    const totalSlides = generationResult.draft.slidesData.length;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") {
+        setActiveSlideIndex((prev) => Math.max(0, prev - 1));
+      } else if (e.key === "ArrowRight") {
+        setActiveSlideIndex((prev) => Math.min(totalSlides - 1, prev + 1));
+      } else if (e.key === "Escape") {
+        setIsRunnerOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isRunnerOpen, generationResult]);
+
   const handleToggleActive = async (workflow: Workflow) => {
+    const nextStatus = !workflow.isActive;
     try {
       const res = await fetch("/api/v1/workflows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...workflow, isActive: !workflow.isActive }),
+        body: JSON.stringify({ ...workflow, isActive: nextStatus }),
       });
       if (res.ok) {
         setWorkflows((prev) =>
-          prev.map((w) => (w.id === workflow.id ? { ...w, isActive: !w.isActive } : w))
+          prev.map((w) => (w.id === workflow.id ? { ...w, isActive: nextStatus } : w))
         );
+        showToast("success", `Workflow "${workflow.name}" is now ${nextStatus ? "Active" : "Paused"}.`);
+      } else {
+        showToast("error", "Failed to update workflow status.");
       }
     } catch (err) {
       console.error("Failed to toggle active status:", err);
+      showToast("error", "Network error toggling workflow status.");
     }
   };
 
-  const handleDeleteWorkflow = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this workflow pipeline?")) return;
+  const handleDuplicateWorkflow = async (workflow: Workflow) => {
     try {
-      const res = await fetch(`/api/v1/workflows?id=${id}`, { method: "DELETE" });
+      const duplicatedPayload = {
+        name: `${workflow.name} (Copy)`,
+        isActive: workflow.isActive,
+        sourcePlatform: workflow.sourcePlatform,
+        sourceRssFeedUrl: workflow.sourceRssFeedUrl,
+        destinationPlatform: workflow.destinationPlatform,
+        brandTemplateId: workflow.brandTemplateId,
+        outputFormat: workflow.outputFormat,
+        backgroundStrategy: workflow.backgroundStrategy,
+        isAutopilot: workflow.isAutopilot,
+        filterRules: workflow.filterRules,
+      };
+
+      const res = await fetch("/api/v1/workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(duplicatedPayload),
+      });
+
       if (res.ok) {
-        setWorkflows((prev) => prev.filter((w) => w.id !== id));
+        showToast("success", `Cloned pipeline "${workflow.name}" successfully!`);
+        fetchData();
+      } else {
+        showToast("error", "Failed to duplicate workflow pipeline.");
+      }
+    } catch (err) {
+      console.error("Error duplicating workflow:", err);
+      showToast("error", "Network error while duplicating pipeline.");
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!workflowToDelete) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/v1/workflows?id=${workflowToDelete.id}`, { method: "DELETE" });
+      if (res.ok) {
+        setWorkflows((prev) => prev.filter((w) => w.id !== workflowToDelete.id));
+        showToast("success", `Workflow "${workflowToDelete.name}" deleted.`);
+      } else {
+        showToast("error", "Could not delete workflow.");
       }
     } catch (err) {
       console.error("Failed to delete workflow:", err);
+      showToast("error", "Network error deleting workflow.");
+    } finally {
+      setIsDeleting(false);
+      setWorkflowToDelete(null);
     }
   };
 
@@ -239,7 +319,6 @@ function WorkflowsContent() {
     setIsRunnerOpen(true);
   };
 
-  // Execute Pipeline Run
   const handleExecuteRun = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsRunning(true);
@@ -281,14 +360,15 @@ function WorkflowsContent() {
       if (res.ok) {
         const data = await res.json();
         setGenerationResult(data);
+        showToast("success", "Pipeline synthesis completed successfully!");
       } else {
         const errData = await res.json().catch(() => ({}));
-        alert(`Pipeline execution failed: ${errData.error || `HTTP ${res.status}`}`);
+        showToast("error", `Pipeline failed: ${errData.error || `HTTP ${res.status}`}`);
       }
     } catch (err) {
       clearInterval(stepInterval);
       console.error("Execution error:", err);
-      alert(`Pipeline error: ${err instanceof Error ? err.message : "Network error"}`);
+      showToast("error", `Pipeline error: ${err instanceof Error ? err.message : "Network error"}`);
     } finally {
       setIsRunning(false);
     }
@@ -299,12 +379,15 @@ function WorkflowsContent() {
     const text = `${generationResult.draft.postCaption}\n\n${generationResult.draft.postHashtags.join(" ")}`;
     navigator.clipboard.writeText(text);
     setCopiedCaption(true);
+    showToast("info", "Caption & hashtags copied to clipboard!");
     setTimeout(() => setCopiedCaption(false), 2000);
   };
 
   const filteredWorkflows = workflows.filter((w) => {
     if (filterType === "ACTIVE") return w.isActive;
     if (filterType === "PAUSED") return !w.isActive;
+    if (filterType === "AUTOPILOT") return w.isAutopilot;
+    if (filterType === "APPROVAL_GATED") return !w.isAutopilot;
     return true;
   });
 
@@ -313,33 +396,37 @@ function WorkflowsContent() {
   return (
     <div className="space-y-8 pb-16">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-zinc-800">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-white/[0.08]">
         <div className="space-y-1">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center text-zinc-950 font-bold shadow-lg shadow-emerald-500/20">
-              <GitFork className="w-4 h-4" />
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-400 p-[1px] shadow-lg shadow-blue-500/20">
+              <div className="w-full h-full bg-[#08090d] rounded-[15px] flex items-center justify-center">
+                <GitFork className="w-5 h-5 text-cyan-300" />
+              </div>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">
-              Automation Workflows & Ingestion Studio
-            </h1>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-white">
+                Workflows &amp; Automation Studio
+              </h1>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Automate blog &amp; article intake, Gemini synthesis, slide rendering, and social packaging.
+              </p>
+            </div>
           </div>
-          <p className="text-sm text-zinc-400">
-            Create automated pipelines to ingest blog posts, generate multi-slide carousels via Gemini Flash, and stage drafts for social distribution.
-          </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           <button
             onClick={handleOpenStandaloneRunner}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-zinc-200 text-xs font-semibold transition-all cursor-pointer shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-full glass-pill hover:bg-white/10 text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-sm"
           >
-            <Play className="w-3.5 h-3.5 text-emerald-400 fill-current" />
-            <span>Test URL Repurposing</span>
+            <Play className="w-3.5 h-3.5 text-cyan-400 fill-current" />
+            <span>Test URL Repurpose</span>
           </button>
 
           <Link
             href="/workflows/new"
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-zinc-950 font-bold text-xs transition-all shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold text-xs transition-all shadow-lg shadow-blue-500/20 active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>New Workflow</span>
@@ -348,78 +435,137 @@ function WorkflowsContent() {
       </div>
 
       {/* Hero Banner */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-zinc-900 via-zinc-900 to-emerald-950/30 border border-zinc-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm">
-        <div className="space-y-2 max-w-2xl">
-          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-semibold text-emerald-400">
+      <div className="p-7 rounded-3xl glass-panel relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-xl border border-white/10">
+        <div className="space-y-2.5 max-w-2xl relative z-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass-pill border border-blue-500/30 text-[11px] font-semibold text-cyan-300">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Phase 3 Engine Online</span>
+            <span>Gemini Flash Synthesis Active</span>
           </div>
-          <h2 className="text-lg font-bold text-white">
-            Transform Any Article or RSS Feed into a Multi-Slide Carousel Deck
+          <h2 className="text-xl font-bold text-white tracking-tight">
+            Transform Any Article or RSS Feed into Multi-Slide Social Assets
           </h2>
-          <p className="text-xs text-zinc-400 leading-relaxed">
-            Configure dynamic workflows with custom source rules, Templated.io visual canvases, Unsplash stock imagery, and direct approval staging.
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Configure automated pipelines with custom filtering, Templated.io visual canvases, Unsplash stock photos, and direct approval staging.
           </p>
         </div>
 
         <Link
           href="/workflows/new"
-          className="px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-bold transition-all shadow-lg shadow-emerald-500/20 active:scale-95 shrink-0 flex items-center gap-2 cursor-pointer"
+          className="px-5 py-3 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white text-xs font-bold transition-all shadow-lg shadow-blue-500/20 active:scale-95 shrink-0 flex items-center gap-2 cursor-pointer relative z-10"
         >
-          <span>Open Workflow Builder</span>
+          <span>Open Workflow Wizard</span>
           <ArrowRight className="w-4 h-4" />
         </Link>
       </div>
 
-      {/* Overview Stats Bar */}
+      {/* Overview Stats Bar (Interactive Quick Filters) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
-          <span className="text-[11px] text-zinc-500 block">Total Workflows</span>
-          <span className="text-xl font-bold text-white mt-1 block">{workflows.length}</span>
-        </div>
-        <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
-          <span className="text-[11px] text-zinc-500 block">Active Pipelines</span>
-          <span className="text-xl font-bold text-emerald-400 mt-1 block">
+        <button
+          type="button"
+          onClick={() => setFilterType("ALL")}
+          className={`p-5 rounded-3xl glass-panel text-left transition-all cursor-pointer border ${
+            filterType === "ALL"
+              ? "border-blue-500/50 bg-blue-500/10 shadow-lg shadow-blue-500/15 ring-1 ring-blue-400/30"
+              : "hover:border-white/20 hover:bg-white/[0.04]"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-slate-400 font-medium block">Total Pipelines</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 font-mono">All</span>
+          </div>
+          <span className="text-2xl font-bold text-white mt-1.5 block font-mono">{workflows.length}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilterType(filterType === "ACTIVE" ? "ALL" : "ACTIVE")}
+          className={`p-5 rounded-3xl glass-panel text-left transition-all cursor-pointer border ${
+            filterType === "ACTIVE"
+              ? "border-cyan-500/50 bg-cyan-500/10 shadow-lg shadow-cyan-500/15 ring-1 ring-cyan-400/30"
+              : "hover:border-white/20 hover:bg-white/[0.04]"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-slate-400 font-medium block">Active Pipelines</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 font-mono">Running</span>
+          </div>
+          <span className="text-2xl font-bold text-cyan-300 mt-1.5 block font-mono">
             {workflows.filter((w) => w.isActive).length}
           </span>
-        </div>
-        <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
-          <span className="text-[11px] text-zinc-500 block">Autopilot Direct</span>
-          <span className="text-xl font-bold text-amber-400 mt-1 block">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilterType(filterType === "AUTOPILOT" ? "ALL" : "AUTOPILOT")}
+          className={`p-5 rounded-3xl glass-panel text-left transition-all cursor-pointer border ${
+            filterType === "AUTOPILOT"
+              ? "border-amber-500/50 bg-amber-500/10 shadow-lg shadow-amber-500/15 ring-1 ring-amber-400/30"
+              : "hover:border-white/20 hover:bg-white/[0.04]"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-slate-400 font-medium block">Autopilot Direct</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-mono">Auto</span>
+          </div>
+          <span className="text-2xl font-bold text-emerald-400 mt-1.5 block font-mono">
             {workflows.filter((w) => w.isAutopilot).length}
           </span>
-        </div>
-        <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
-          <span className="text-[11px] text-zinc-500 block">Approval Inbox Gated</span>
-          <span className="text-xl font-bold text-blue-400 mt-1 block">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilterType(filterType === "APPROVAL_GATED" ? "ALL" : "APPROVAL_GATED")}
+          className={`p-5 rounded-3xl glass-panel text-left transition-all cursor-pointer border ${
+            filterType === "APPROVAL_GATED"
+              ? "border-purple-500/50 bg-purple-500/10 shadow-lg shadow-purple-500/15 ring-1 ring-purple-400/30"
+              : "hover:border-white/20 hover:bg-white/[0.04]"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-slate-400 font-medium block">Approval Gated</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 font-mono">Gated</span>
+          </div>
+          <span className="text-2xl font-bold text-blue-400 mt-1.5 block font-mono">
             {workflows.filter((w) => !w.isAutopilot).length}
           </span>
-        </div>
+        </button>
       </div>
 
       {/* Filter Tabs & Workflows Grid */}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2">
-          <div className="flex items-center gap-2">
-            <h3 className="text-base font-semibold text-zinc-100 flex items-center gap-2">
-              <GitFork className="w-4 h-4 text-emerald-400" />
+          <div className="flex items-center gap-2.5">
+            <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <GitFork className="w-4 h-4 text-cyan-400" />
               <span>Configured Pipelines</span>
             </h3>
-            <span className="text-xs text-zinc-500">({filteredWorkflows.length})</span>
+            <span className="text-xs text-slate-400 font-mono">({filteredWorkflows.length})</span>
           </div>
 
-          <div className="flex items-center gap-1.5 bg-zinc-900/80 p-1 rounded-xl border border-zinc-800">
-            {(["ALL", "ACTIVE", "PAUSED"] as const).map((tab) => (
+          <div
+            role="tablist"
+            aria-label="Workflow pipeline filters"
+            className="flex items-center gap-1.5 bg-white/[0.03] p-1 rounded-full border border-white/[0.08] overflow-x-auto max-w-full"
+          >
+            {[
+              { id: "ALL", label: "All Pipelines", count: workflows.length },
+              { id: "ACTIVE", label: "Active", count: workflows.filter((w) => w.isActive).length },
+              { id: "PAUSED", label: "Paused", count: workflows.filter((w) => !w.isActive).length },
+              { id: "AUTOPILOT", label: "Autopilot", count: workflows.filter((w) => w.isAutopilot).length },
+            ].map((tab) => (
               <button
-                key={tab}
-                onClick={() => setFilterType(tab)}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  filterType === tab
-                    ? "bg-zinc-800 text-emerald-400 shadow-sm"
-                    : "text-zinc-400 hover:text-zinc-200"
+                key={tab.id}
+                role="tab"
+                aria-selected={filterType === tab.id}
+                onClick={() => setFilterType(tab.id as FilterCategory)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  filterType === tab.id
+                    ? "bg-blue-600/30 text-cyan-300 border border-blue-500/40 shadow-sm"
+                    : "text-slate-400 hover:text-white"
                 }`}
               >
-                {tab === "ALL" ? "All Pipelines" : tab === "ACTIVE" ? "Active" : "Paused"}
+                <span>{tab.label}</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/10 font-mono">{tab.count}</span>
               </button>
             ))}
           </div>
@@ -427,27 +573,37 @@ function WorkflowsContent() {
 
         {isLoading ? (
           <div className="flex flex-col items-center justify-center min-h-[220px] space-y-3">
-            <RefreshCw className="w-7 h-7 text-emerald-400 animate-spin" />
-            <p className="text-xs text-zinc-400">Loading workflows...</p>
+            <RefreshCw className="w-7 h-7 text-cyan-400 animate-spin" />
+            <p className="text-xs text-slate-400">Loading workflows...</p>
           </div>
         ) : filteredWorkflows.length === 0 ? (
-          <div className="text-center py-16 border border-dashed border-zinc-800 rounded-2xl bg-zinc-900/30 space-y-4">
-            <GitFork className="w-10 h-10 text-zinc-600 mx-auto" />
+          <div className="text-center py-16 border border-dashed border-white/10 rounded-3xl glass-panel space-y-4">
+            <GitFork className="w-12 h-12 text-slate-600 mx-auto" />
             <div className="space-y-1">
-              <h4 className="text-sm font-semibold text-zinc-300">No Workflows Found</h4>
-              <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+              <h4 className="text-sm font-semibold text-slate-200">No Workflows Found</h4>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
                 {filterType === "ALL"
                   ? "Create your first automated RSS or URL pipeline to start generating social carousels."
-                  : `No ${filterType.toLowerCase()} workflows currently.`}
+                  : `No workflows match the "${filterType.toLowerCase()}" filter.`}
               </p>
             </div>
-            <Link
-              href="/workflows/new"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500 text-zinc-950 text-xs font-bold rounded-xl hover:bg-emerald-400 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Create Workflow</span>
-            </Link>
+            <div className="flex items-center justify-center gap-3">
+              {filterType !== "ALL" && (
+                <button
+                  onClick={() => setFilterType("ALL")}
+                  className="px-4 py-2 rounded-full glass-pill hover:bg-white/10 text-xs font-semibold text-slate-300 cursor-pointer"
+                >
+                  Reset Filter
+                </button>
+              )}
+              <Link
+                href="/workflows/new"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-xs font-bold rounded-full hover:from-blue-500 hover:to-cyan-400 shadow-lg shadow-blue-500/20 transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Workflow</span>
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -469,55 +625,56 @@ function WorkflowsContent() {
               return (
                 <div
                   key={wf.id}
-                  className="p-5 rounded-2xl bg-zinc-900/70 border border-zinc-800/90 hover:border-zinc-700 transition-all flex flex-col justify-between space-y-4 shadow-sm"
+                  className="p-5 rounded-3xl glass-panel hover:border-blue-500/30 transition-all flex flex-col justify-between space-y-4 shadow-md"
                 >
                   {/* Top Row: Title & Active Toggle */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-sm font-bold text-zinc-100">{wf.name}</h4>
+                        <h4 className="text-sm font-bold text-white">{wf.name}</h4>
                         <span
-                          className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+                          className={`text-[10px] px-2.5 py-0.5 rounded-full font-semibold border ${
                             wf.isActive
-                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                              : "bg-zinc-800 text-zinc-400 border-zinc-700"
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                              : "bg-white/5 text-slate-400 border-white/10"
                           }`}
                         >
                           {wf.isActive ? "Active" : "Paused"}
                         </span>
                         {wf.isAutopilot && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold flex items-center gap-1">
+                          <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-semibold flex items-center gap-1">
                             <Zap className="w-3 h-3" /> Autopilot
                           </span>
                         )}
                       </div>
 
                       {/* Source -> Destination Badges */}
-                      <div className="flex items-center gap-2 text-xs text-zinc-400 flex-wrap">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-medium">
-                          {isRss ? <Rss className="w-3 h-3 text-orange-400" /> : <Globe className="w-3 h-3 text-blue-400" />}
+                      <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.08] text-slate-200 font-medium">
+                          {isRss ? <Rss className="w-3 h-3 text-orange-400" /> : <Globe className="w-3 h-3 text-cyan-400" />}
                           {isRss ? "RSS Feed" : "Custom URL"}
                         </span>
-                        <ArrowRight className="w-3 h-3 text-zinc-600" />
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-medium">
+                        <ArrowRight className="w-3 h-3 text-slate-600" />
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.08] text-slate-200 font-medium">
                           {wf.destinationPlatform === "LINKEDIN" && <LinkedinIcon className="w-3 h-3 text-blue-400" />}
                           {wf.destinationPlatform === "INSTAGRAM" && <InstagramIcon className="w-3 h-3 text-pink-400" />}
                           {wf.destinationPlatform === "TWITTER_X" && <TwitterIcon className="w-3 h-3 text-sky-400" />}
                           {wf.destinationPlatform}
                         </span>
-                        <span className="text-[11px] text-zinc-500">
+                        <span className="text-[11px] text-slate-500 font-mono">
                           ({wf.outputFormat === "MULTI_SLIDE_CAROUSEL" ? "5-6 Slides" : "Single Card"})
                         </span>
                       </div>
                     </div>
 
-                    {/* Toggle Switch */}
+                    {/* Toggle Button */}
                     <button
                       onClick={() => handleToggleActive(wf)}
-                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer border ${
+                      aria-label={`Toggle active state for ${wf.name}`}
+                      className={`text-xs px-3 py-1 rounded-full font-medium transition-colors cursor-pointer border ${
                         wf.isActive
-                          ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700"
-                          : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+                          ? "glass-pill text-slate-300 hover:bg-white/10"
+                          : "bg-blue-500/15 border-blue-500/30 text-cyan-300 hover:bg-blue-500/25"
                       }`}
                     >
                       {wf.isActive ? "Pause" : "Activate"}
@@ -525,26 +682,26 @@ function WorkflowsContent() {
                   </div>
 
                   {/* Middle Row: Template Preview & Metadata */}
-                  <div className="flex items-center gap-3 p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                  <div className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={previewImg}
                       alt={matchedTemplate?.name || "Template"}
-                      className="w-16 h-12 rounded-lg object-cover border border-zinc-800 shrink-0"
+                      className="w-16 h-12 rounded-xl object-cover border border-white/10 shrink-0"
                     />
                     <div className="space-y-0.5 min-w-0 text-xs">
                       <div className="flex items-center gap-1.5">
-                        <Layers className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span className="font-semibold text-zinc-200 truncate">
+                        <Layers className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span className="font-semibold text-white truncate">
                           {matchedTemplate?.name || wf.brandTemplateId || "Modern Carousel Hook"}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
                         <span>Strategy: {wf.backgroundStrategy}</span>
                         {wf.filterRules?.min_word_count && (
                           <>
                             <span>•</span>
-                            <span>Min: {wf.filterRules.min_word_count} words</span>
+                            <span className="font-mono">Min: {wf.filterRules.min_word_count} words</span>
                           </>
                         )}
                       </div>
@@ -552,22 +709,34 @@ function WorkflowsContent() {
                   </div>
 
                   {/* Bottom Row: Action Buttons */}
-                  <div className="flex items-center justify-between pt-2 border-t border-zinc-800/60">
+                  <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
                     <button
                       onClick={() => handleOpenRunnerForWorkflow(wf)}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 hover:text-emerald-200 text-xs font-bold transition-colors cursor-pointer"
+                      className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-cyan-300 text-xs font-bold transition-all cursor-pointer"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
                       <span>Run Ingestion / Test Now</span>
                     </button>
 
-                    <button
-                      onClick={() => handleDeleteWorkflow(wf.id)}
-                      className="p-1.5 text-zinc-500 hover:text-red-400 transition-colors cursor-pointer rounded-lg hover:bg-zinc-800"
-                      title="Delete Workflow"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleDuplicateWorkflow(wf)}
+                        className="p-1.5 text-slate-400 hover:text-cyan-300 transition-colors cursor-pointer rounded-xl hover:bg-white/5"
+                        title="Duplicate Pipeline"
+                        aria-label="Duplicate Pipeline"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        onClick={() => setWorkflowToDelete(wf)}
+                        className="p-1.5 text-slate-500 hover:text-red-400 transition-colors cursor-pointer rounded-xl hover:bg-white/5"
+                        title="Delete Workflow"
+                        aria-label="Delete Workflow"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -578,28 +747,30 @@ function WorkflowsContent() {
 
       {/* LIVE REPURPOSING & INGESTION RUNNER MODAL */}
       {isRunnerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-[#0e1017] border border-white/15 rounded-3xl max-w-4xl w-full p-6 shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto">
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+            <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                  <Play className="w-4 h-4 fill-current" />
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 p-[1px]">
+                  <div className="w-full h-full bg-[#08090d] rounded-[11px] flex items-center justify-center text-cyan-300">
+                    <Play className="w-4 h-4 fill-current" />
+                  </div>
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-zinc-100">
+                  <h2 className="text-base font-bold text-white">
                     {selectedWorkflowForRun
                       ? `Run Workflow: ${selectedWorkflowForRun.name}`
                       : "Interactive AI Repurpose Engine"}
                   </h2>
-                  <p className="text-xs text-zinc-400">
+                  <p className="text-xs text-slate-400">
                     Ingest article content, run Gemini Flash synthesis, render high-res slides, and compile LinkedIn PDF.
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setIsRunnerOpen(false)}
-                className="text-zinc-500 hover:text-zinc-300 p-1.5 rounded-lg hover:bg-zinc-800 cursor-pointer"
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/10 cursor-pointer transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -610,20 +781,20 @@ function WorkflowsContent() {
               <form onSubmit={handleExecuteRun} className="space-y-4">
                 {selectedWorkflowForRun ? (
                   <div className="space-y-3">
-                    <div className="p-3.5 rounded-xl bg-zinc-850 border border-zinc-800 space-y-2 text-xs">
+                    <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-zinc-300">Pipeline Configuration:</span>
-                        <span className="text-emerald-400 font-mono">
+                        <span className="font-semibold text-slate-300">Pipeline Configuration:</span>
+                        <span className="text-cyan-300 font-mono">
                           {selectedWorkflowForRun.outputFormat} • {selectedWorkflowForRun.destinationPlatform}
                         </span>
                       </div>
-                      <div className="text-zinc-400 text-[11px]">
+                      <div className="text-slate-400 text-[11px]">
                         Template: {selectedWorkflowForRun.brandTemplateId || "Default"} | Strategy: {selectedWorkflowForRun.backgroundStrategy}
                       </div>
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
+                      <label className="text-xs font-semibold text-slate-300 block mb-1.5">
                         {selectedWorkflowForRun.sourcePlatform === "BLOG_RSS"
                           ? "RSS Feed / Article URL to Ingest"
                           : "Target Article URL"}
@@ -633,7 +804,7 @@ function WorkflowsContent() {
                         required
                         value={testUrlInput}
                         onChange={(e) => setTestUrlInput(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#151824] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
                         placeholder="https://techcrunch.com/feed/ or https://myblog.com/post-title"
                       />
                     </div>
@@ -641,7 +812,7 @@ function WorkflowsContent() {
                 ) : (
                   <div className="space-y-4">
                     <div>
-                      <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
+                      <label className="text-xs font-semibold text-slate-300 block mb-1.5">
                         Source Article URL
                       </label>
                       <input
@@ -651,14 +822,14 @@ function WorkflowsContent() {
                         onChange={(e) =>
                           setCustomRunnerData({ ...customRunnerData, articleUrl: e.target.value })
                         }
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#151824] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
                         placeholder="https://example.com/scale-content-repurposing"
                       />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
+                        <label className="text-xs font-semibold text-slate-300 block mb-1.5">
                           Output Format
                         </label>
                         <select
@@ -666,7 +837,7 @@ function WorkflowsContent() {
                           onChange={(e) =>
                             setCustomRunnerData({ ...customRunnerData, outputFormat: e.target.value })
                           }
-                          className="w-full px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-[#151824] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
                         >
                           <option value="MULTI_SLIDE_CAROUSEL">Multi-Slide Carousel (5-6 slides)</option>
                           <option value="SINGLE_IMAGE_CARD">Single Image Card (1 slide)</option>
@@ -674,19 +845,28 @@ function WorkflowsContent() {
                       </div>
 
                       <div>
-                        <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
-                          Background Strategy
-                        </label>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-xs font-semibold text-slate-300 block">
+                            Background Strategy
+                          </label>
+                          <span className="text-[10px] text-cyan-400 font-mono">
+                            {customRunnerData.backgroundStrategy === "ARTICLE_IMAGE_FIRST"
+                              ? "Scrapes lead graphic"
+                              : customRunnerData.backgroundStrategy === "STOCK_SEARCH_ONLY"
+                              ? "AI Unsplash search"
+                              : "Solid brand gradient"}
+                          </span>
+                        </div>
                         <select
                           value={customRunnerData.backgroundStrategy}
                           onChange={(e) =>
                             setCustomRunnerData({ ...customRunnerData, backgroundStrategy: e.target.value })
                           }
-                          className="w-full px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-[#151824] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
                         >
-                          <option value="ARTICLE_IMAGE_FIRST">Article Image First</option>
-                          <option value="STOCK_SEARCH_ONLY">Stock Search Only</option>
-                          <option value="SOLID_COLOR_ONLY">Solid Brand Color Only</option>
+                          <option value="ARTICLE_IMAGE_FIRST">Article Image First (Extracts hero visual from body)</option>
+                          <option value="STOCK_SEARCH_ONLY">Stock Search Only (Unsplash stock photography via AI)</option>
+                          <option value="SOLID_COLOR_ONLY">Solid Brand Color Only (Minimalist gradient theme)</option>
                         </select>
                       </div>
                     </div>
@@ -695,31 +875,31 @@ function WorkflowsContent() {
 
                 {/* Progress Animation during run */}
                 {isRunning && (
-                  <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
-                    <div className="flex items-center justify-between text-xs font-semibold text-emerald-400">
+                  <div className="p-4 rounded-2xl glass-panel-elevated space-y-3">
+                    <div className="flex items-center justify-between text-xs font-semibold text-cyan-300">
                       <span className="flex items-center gap-2">
-                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
                         Repurposing Content in Real-time...
                       </span>
-                      <span>Step {runStep} of 4</span>
+                      <span className="font-mono">Step {runStep} of 4</span>
                     </div>
 
-                    <div className="space-y-1.5 text-[11px] text-zinc-400">
-                      <div className={`flex items-center gap-2 ${runStep >= 1 ? "text-emerald-300" : "text-zinc-600"}`}>
-                        {runStep > 1 ? <CheckCircle2 className="w-3.5 h-3.5" /> : <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                    <div className="space-y-1.5 text-[11px] text-slate-400">
+                      <div className={`flex items-center gap-2 ${runStep >= 1 ? "text-cyan-300" : "text-slate-600"}`}>
+                        {runStep > 1 ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />}
                         <span>1. Scraping and extracting clean article body</span>
                       </div>
-                      <div className={`flex items-center gap-2 ${runStep >= 2 ? "text-emerald-300" : "text-zinc-600"}`}>
-                        {runStep > 2 ? <CheckCircle2 className="w-3.5 h-3.5" /> : runStep === 2 ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <div className="w-3.5 h-3.5 rounded-full border border-zinc-700" />}
-                        <span>2. Gemini Flash AI synthesizing hook, insights & captions</span>
+                      <div className={`flex items-center gap-2 ${runStep >= 2 ? "text-cyan-300" : "text-slate-600"}`}>
+                        {runStep > 2 ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : runStep === 2 ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" /> : <div className="w-3.5 h-3.5 rounded-full border border-white/20" />}
+                        <span>2. Gemini Flash AI synthesizing hook, insights &amp; captions</span>
                       </div>
-                      <div className={`flex items-center gap-2 ${runStep >= 3 ? "text-emerald-300" : "text-zinc-600"}`}>
-                        {runStep > 3 ? <CheckCircle2 className="w-3.5 h-3.5" /> : runStep === 3 ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <div className="w-3.5 h-3.5 rounded-full border border-zinc-700" />}
-                        <span>3. Resolving background imagery & rendering PNG slides via Templated.io</span>
+                      <div className={`flex items-center gap-2 ${runStep >= 3 ? "text-cyan-300" : "text-slate-600"}`}>
+                        {runStep > 3 ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : runStep === 3 ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" /> : <div className="w-3.5 h-3.5 rounded-full border border-white/20" />}
+                        <span>3. Resolving background visuals &amp; rendering PNG slides via Templated.io</span>
                       </div>
-                      <div className={`flex items-center gap-2 ${runStep >= 4 ? "text-emerald-300" : "text-zinc-600"}`}>
-                        {runStep >= 4 ? <CheckCircle2 className="w-3.5 h-3.5" /> : <div className="w-3.5 h-3.5 rounded-full border border-zinc-700" />}
-                        <span>4. Stitching high-res LinkedIn PDF document & saving to Inbox</span>
+                      <div className={`flex items-center gap-2 ${runStep >= 4 ? "text-cyan-300" : "text-slate-600"}`}>
+                        {runStep >= 4 ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <div className="w-3.5 h-3.5 rounded-full border border-white/20" />}
+                        <span>4. Stitching high-res LinkedIn PDF document &amp; saving to Inbox</span>
                       </div>
                     </div>
                   </div>
@@ -729,14 +909,14 @@ function WorkflowsContent() {
                   <button
                     type="button"
                     onClick={() => setIsRunnerOpen(false)}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                    className="px-4 py-2 rounded-full glass-pill hover:bg-white/10 text-xs font-semibold text-slate-400 hover:text-white cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isRunning}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs transition-all shadow-lg shadow-emerald-500/20 active:scale-95 disabled:opacity-50 cursor-pointer"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold text-xs transition-all shadow-lg shadow-blue-500/20 active:scale-95 disabled:opacity-50 cursor-pointer"
                   >
                     {isRunning ? (
                       <>
@@ -757,13 +937,13 @@ function WorkflowsContent() {
             {/* Generation Results View */}
             {generationResult && (
               <div className="space-y-6">
-                <div className="flex items-center justify-between p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                  <div className="flex items-center gap-2 text-xs text-emerald-300 font-semibold">
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-blue-500/10 border border-blue-500/30">
+                  <div className="flex items-center gap-2 text-xs text-cyan-300 font-semibold">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span>Repurposing Complete! Draft generated and saved to Approval Inbox.</span>
                   </div>
                   {generationResult.timings?.total_duration_ms && (
-                    <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                    <span className="text-[11px] font-mono text-cyan-300 bg-blue-500/20 px-2.5 py-0.5 rounded-full border border-blue-500/30">
                       {(generationResult.timings.total_duration_ms / 1000).toFixed(2)}s
                     </span>
                   )}
@@ -773,15 +953,20 @@ function WorkflowsContent() {
                   {/* Left: Interactive Carousel Preview */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-zinc-300">
-                        Slide {activeSlideIndex + 1} of {generationResult.draft.slidesData.length}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-300 font-mono">
+                          Slide {activeSlideIndex + 1} of {generationResult.draft.slidesData.length}
+                        </span>
+                        <span className="text-[10px] text-slate-500 hidden sm:inline-block font-mono">
+                          (Press ← / → keys)
+                        </span>
+                      </div>
                       {generationResult.draft.pdfDocumentUrl && (
                         <a
                           href={generationResult.draft.pdfDocumentUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-semibold"
+                          className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-semibold"
                         >
                           <Download className="w-3.5 h-3.5" />
                           <span>Download LinkedIn PDF</span>
@@ -789,7 +974,7 @@ function WorkflowsContent() {
                       )}
                     </div>
 
-                    <div className="relative aspect-square rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800 shadow-xl flex items-center justify-center">
+                    <div className="relative aspect-square rounded-2xl overflow-hidden bg-[#050608] border border-white/10 shadow-xl flex items-center justify-center">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={generationResult.draft.slidesData[activeSlideIndex]?.rendered_png_url}
@@ -803,7 +988,8 @@ function WorkflowsContent() {
                             type="button"
                             disabled={activeSlideIndex === 0}
                             onClick={() => setActiveSlideIndex((prev) => Math.max(0, prev - 1))}
-                            className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white disabled:opacity-30 cursor-pointer backdrop-blur-sm"
+                            aria-label="Previous Slide"
+                            className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white disabled:opacity-30 cursor-pointer backdrop-blur-sm transition-opacity"
                           >
                             <ChevronLeft className="w-4 h-4" />
                           </button>
@@ -815,7 +1001,8 @@ function WorkflowsContent() {
                                 Math.min(generationResult.draft.slidesData.length - 1, prev + 1)
                               )
                             }
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white disabled:opacity-30 cursor-pointer backdrop-blur-sm"
+                            aria-label="Next Slide"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white disabled:opacity-30 cursor-pointer backdrop-blur-sm transition-opacity"
                           >
                             <ChevronRight className="w-4 h-4" />
                           </button>
@@ -831,10 +1018,11 @@ function WorkflowsContent() {
                             key={idx}
                             type="button"
                             onClick={() => setActiveSlideIndex(idx)}
-                            className={`w-14 h-14 rounded-lg overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
+                            aria-label={`Select Slide ${idx + 1}`}
+                            className={`w-14 h-14 rounded-xl overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
                               activeSlideIndex === idx
-                                ? "border-emerald-500 scale-105"
-                                : "border-zinc-800 opacity-60 hover:opacity-100"
+                                ? "border-cyan-400 scale-105 shadow-md shadow-cyan-500/20"
+                                : "border-white/10 opacity-60 hover:opacity-100"
                             }`}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -853,32 +1041,32 @@ function WorkflowsContent() {
                   <div className="space-y-4 flex flex-col justify-between">
                     <div className="space-y-3">
                       <div>
-                        <span className="text-[10px] text-zinc-500 uppercase tracking-wider block font-bold">
+                        <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold">
                           Post Title
                         </span>
-                        <h3 className="text-sm font-bold text-zinc-100">
+                        <h3 className="text-sm font-bold text-white">
                           {generationResult.draft.postTitle}
                         </h3>
                       </div>
 
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
+                          <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">
                             Generated Post Caption
                           </span>
                           <button
                             type="button"
                             onClick={handleCopyCaption}
-                            className="flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer"
+                            className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer"
                           >
-                            {copiedCaption ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                            {copiedCaption ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                             <span>{copiedCaption ? "Copied!" : "Copy Caption"}</span>
                           </button>
                         </div>
-                        <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-300 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto font-sans">
+                        <div className="p-4 rounded-2xl bg-[#08090d] border border-white/10 text-xs text-slate-300 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto font-sans">
                           {generationResult.draft.postCaption}
                           {generationResult.draft.postHashtags.length > 0 && (
-                            <div className="mt-3 text-emerald-400 font-mono">
+                            <div className="mt-3 text-cyan-400 font-mono">
                               {generationResult.draft.postHashtags.join(" ")}
                             </div>
                           )}
@@ -886,21 +1074,21 @@ function WorkflowsContent() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
+                    <div className="flex items-center justify-between pt-4 border-t border-white/[0.08]">
                       <button
                         type="button"
                         onClick={() => {
                           setGenerationResult(null);
                           setRunStep(0);
                         }}
-                        className="text-xs text-zinc-400 hover:text-zinc-200 cursor-pointer font-semibold"
+                        className="text-xs text-slate-400 hover:text-white cursor-pointer font-semibold"
                       >
                         Run Another Test
                       </button>
 
                       <Link
                         href="/inbox"
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs shadow-lg shadow-emerald-500/20"
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold text-xs shadow-lg shadow-blue-500/20"
                       >
                         <span>Open in Approval Inbox</span>
                         <ArrowRight className="w-4 h-4" />
@@ -913,6 +1101,79 @@ function WorkflowsContent() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      {workflowToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0e1017] border border-red-500/30 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">Delete Workflow Pipeline?</h3>
+                <p className="text-xs text-slate-400">This action cannot be undone.</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-xs text-slate-300">
+              <span className="font-semibold text-white block">{workflowToDelete.name}</span>
+              <span className="text-slate-400 text-[11px]">
+                {workflowToDelete.sourcePlatform} → {workflowToDelete.destinationPlatform} ({workflowToDelete.outputFormat})
+              </span>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setWorkflowToDelete(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-full glass-pill hover:bg-white/10 text-xs font-semibold text-slate-300 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-full bg-red-500/80 hover:bg-red-500 text-white text-xs font-bold transition-all shadow-lg shadow-red-500/20 cursor-pointer"
+              >
+                {isDeleting ? "Deleting..." : "Delete Pipeline"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
+          <div
+            className={`px-4 py-3 rounded-2xl backdrop-blur-xl border shadow-2xl flex items-center gap-3 max-w-sm text-xs font-medium ${
+              toast.type === "success"
+                ? "bg-emerald-950/80 border-emerald-500/40 text-emerald-200 shadow-emerald-500/10"
+                : toast.type === "error"
+                ? "bg-red-950/80 border-red-500/40 text-red-200 shadow-red-500/10"
+                : "bg-[#101422]/90 border-cyan-500/30 text-cyan-200 shadow-cyan-500/10"
+            }`}
+          >
+            {toast.type === "success" ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : toast.type === "error" ? (
+              <X className="w-4 h-4 text-red-400 shrink-0" />
+            ) : (
+              <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+            )}
+            <span>{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className="ml-auto text-white/50 hover:text-white p-0.5 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -921,8 +1182,8 @@ export default function WorkflowsPage() {
   return (
     <Suspense fallback={
       <div className="flex flex-col items-center justify-center min-h-[300px] space-y-3">
-        <RefreshCw className="w-7 h-7 text-emerald-400 animate-spin" />
-        <p className="text-xs text-zinc-400">Loading Workflows Studio...</p>
+        <RefreshCw className="w-7 h-7 text-cyan-400 animate-spin" />
+        <p className="text-xs text-slate-400">Loading Workflows Studio...</p>
       </div>
     }>
       <WorkflowsContent />

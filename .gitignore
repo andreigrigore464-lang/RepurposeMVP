@@ -44,3 +44,8 @@ next-env.d.ts
 
 # uploads
 /public/uploads/
+
+# archives & scratch
+*.7z
+*.zip
+scratch/

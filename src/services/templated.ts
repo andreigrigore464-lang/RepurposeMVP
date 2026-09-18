@@ -1,5 +1,11 @@
 import { CarouselSlide } from "./ai/types";
-import { renderTemplate, getTemplatedTemplate, TemplatedLayer } from "@/lib/templated";
+import {
+  renderTemplate,
+  getTemplatedTemplate,
+  TemplatedLayer,
+  normalizeTemplateConfig,
+  dynamicConfigToLegacyMappings,
+} from "@/lib/templated";
 import prisma from "@/lib/prisma";
 
 export interface BatchRenderOptions {
@@ -62,14 +68,21 @@ export async function getTemplateLayers(
     });
 
     if (dbTmpl && dbTmpl.layerMappings && typeof dbTmpl.layerMappings === "object") {
-      const dbMap = dbTmpl.layerMappings as Record<string, string>;
-      if (Object.keys(dbMap).length > 0) {
+      const normalized = normalizeTemplateConfig(dbTmpl.layerMappings);
+      const legacyMap = dynamicConfigToLegacyMappings(normalized);
+      if (
+        legacyMap.headline_layer ||
+        legacyMap.body_layer ||
+        legacyMap.background_layer ||
+        legacyMap.logo_layer ||
+        legacyMap.counter_layer
+      ) {
         return {
-          headlineLayerName: dbMap.headline_layer || dbMap.title || null,
-          bodyLayerName: dbMap.body_layer || dbMap.body || null,
-          bgImageLayerName: dbMap.background_layer || dbMap.background || null,
-          logoLayerName: dbMap.logo_layer || dbMap.logo || null,
-          counterLayerName: dbMap.counter_layer || dbMap.counter || null,
+          headlineLayerName: legacyMap.headline_layer || null,
+          bodyLayerName: legacyMap.body_layer || null,
+          bgImageLayerName: legacyMap.background_layer || null,
+          logoLayerName: legacyMap.logo_layer || null,
+          counterLayerName: legacyMap.counter_layer || null,
         };
       }
     }
@@ -101,6 +114,8 @@ export async function getTemplateLayers(
  * Inspects Templated.io layer objects and resolves layer names based on types and naming patterns.
  */
 export function resolveLayersFromSchema(layers: TemplatedLayer[]): ResolvedTemplateLayers {
+  const getLayerKey = (l: TemplatedLayer) => (l.layer || l.name || (l as unknown as { id?: string }).id || "") as string;
+
   const textLayers = layers.filter((l) => {
     const type = (l.type || "").toLowerCase();
     return type === "text" || type.includes("text") || l.text !== undefined;
@@ -115,34 +130,50 @@ export function resolveLayersFromSchema(layers: TemplatedLayer[]): ResolvedTempl
   let headlineLayerName: string | null = null;
   const headlineCandidates = ["headline_text", "headline", "title", "heading", "hook", "header"];
   for (const candidate of headlineCandidates) {
-    const match = textLayers.find((l) => (l.name || "").toLowerCase() === candidate || (l.name || "").toLowerCase().includes(candidate));
+    const match = textLayers.find((l) => {
+      const k = getLayerKey(l).toLowerCase();
+      return k === candidate || k.includes(candidate);
+    });
     if (match) {
-      headlineLayerName = match.name;
+      headlineLayerName = getLayerKey(match);
       break;
     }
   }
+  // Smart Heuristic: Pick the text layer with the largest font size
   if (!headlineLayerName && textLayers.length > 0) {
-    headlineLayerName = textLayers[0].name;
+    const sortedByFontSize = [...textLayers].sort((a, b) => {
+      const sizeA = parseFloat(String(a.font_size || "0").replace(/[^0-9.]/g, "")) || 0;
+      const sizeB = parseFloat(String(b.font_size || "0").replace(/[^0-9.]/g, "")) || 0;
+      return sizeB - sizeA;
+    });
+    headlineLayerName = getLayerKey(sortedByFontSize[0]);
   }
 
-  // b) Body / Subtitle: Find text layer named body_text, body, subtitle, text, or the second text layer
+  // b) Body / Subtitle: Find text layer named body_text, body, subtitle, text, or second largest text layer
   let bodyLayerName: string | null = null;
   const bodyCandidates = ["body_text", "body", "subtitle", "subheading", "text", "quote", "content", "description"];
   for (const candidate of bodyCandidates) {
-    const match = textLayers.find(
-      (l) =>
-        l.name !== headlineLayerName &&
-        ((l.name || "").toLowerCase() === candidate || (l.name || "").toLowerCase().includes(candidate))
-    );
+    const match = textLayers.find((l) => {
+      const k = getLayerKey(l);
+      return (
+        k !== headlineLayerName &&
+        (k.toLowerCase() === candidate || k.toLowerCase().includes(candidate))
+      );
+    });
     if (match) {
-      bodyLayerName = match.name;
+      bodyLayerName = getLayerKey(match);
       break;
     }
   }
   if (!bodyLayerName) {
-    const remainingText = textLayers.filter((l) => l.name !== headlineLayerName);
+    const remainingText = textLayers.filter((l) => getLayerKey(l) !== headlineLayerName);
     if (remainingText.length > 0) {
-      bodyLayerName = remainingText[0].name;
+      const sortedRemaining = [...remainingText].sort((a, b) => {
+        const sizeA = parseFloat(String(a.font_size || "0").replace(/[^0-9.]/g, "")) || 0;
+        const sizeB = parseFloat(String(b.font_size || "0").replace(/[^0-9.]/g, "")) || 0;
+        return sizeB - sizeA;
+      });
+      bodyLayerName = getLayerKey(sortedRemaining[0]);
     }
   }
 
@@ -150,34 +181,39 @@ export function resolveLayersFromSchema(layers: TemplatedLayer[]): ResolvedTempl
   let bgImageLayerName: string | null = null;
   const bgCandidates = ["background_image", "background", "bg", "image", "photo", "backdrop"];
   for (const candidate of bgCandidates) {
-    const match = imageLayers.find(
-      (l) => (l.name || "").toLowerCase() === candidate || (l.name || "").toLowerCase().includes(candidate)
-    );
+    const match = imageLayers.find((l) => {
+      const k = getLayerKey(l).toLowerCase();
+      return k === candidate || k.includes(candidate);
+    });
     if (match) {
-      bgImageLayerName = match.name;
+      bgImageLayerName = getLayerKey(match);
       break;
     }
   }
   if (!bgImageLayerName && imageLayers.length > 0) {
-    bgImageLayerName = imageLayers[0].name;
+    bgImageLayerName = getLayerKey(imageLayers[0]);
   }
 
   // d) Brand Logo: Find image layer named brand_logo, logo, or second image layer
   let logoLayerName: string | null = null;
   const logoCandidates = ["brand_logo", "logo", "avatar", "icon", "brand"];
   for (const candidate of logoCandidates) {
-    const match = imageLayers.find(
-      (l) => (l.name || "").toLowerCase() === candidate || (l.name || "").toLowerCase().includes(candidate)
-    );
+    const match = imageLayers.find((l) => {
+      const k = getLayerKey(l);
+      return (
+        k !== bgImageLayerName &&
+        (k.toLowerCase() === candidate || k.toLowerCase().includes(candidate))
+      );
+    });
     if (match) {
-      logoLayerName = match.name;
+      logoLayerName = getLayerKey(match);
       break;
     }
   }
   if (!logoLayerName) {
-    const remainingImages = imageLayers.filter((l) => l.name !== bgImageLayerName);
+    const remainingImages = imageLayers.filter((l) => getLayerKey(l) !== bgImageLayerName);
     if (remainingImages.length > 0) {
-      logoLayerName = remainingImages[0].name;
+      logoLayerName = getLayerKey(remainingImages[0]);
     }
   }
 
@@ -185,11 +221,16 @@ export function resolveLayersFromSchema(layers: TemplatedLayer[]): ResolvedTempl
   let counterLayerName: string | null = null;
   const counterCandidates = ["slide_counter", "counter", "page_number", "page", "number", "slide_number"];
   for (const candidate of counterCandidates) {
-    const match = textLayers.find(
-      (l) => (l.name || "").toLowerCase() === candidate || (l.name || "").toLowerCase().includes(candidate)
-    );
+    const match = textLayers.find((l) => {
+      const k = getLayerKey(l);
+      return (
+        k !== headlineLayerName &&
+        k !== bodyLayerName &&
+        (k.toLowerCase() === candidate || k.toLowerCase().includes(candidate))
+      );
+    });
     if (match) {
-      counterLayerName = match.name;
+      counterLayerName = getLayerKey(match);
       break;
     }
   }

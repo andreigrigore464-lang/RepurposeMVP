@@ -5,6 +5,7 @@ export interface CarouselSlide {
   headline: string;
   body: string;
   slide_type: SlideType;
+  visual_keyword?: string;
   background_image_url?: string | null;
 }
 

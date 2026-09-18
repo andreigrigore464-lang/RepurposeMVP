@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { scrapeArticle, fetchRssFeedItems } from "@/services/scraper";
 import { geminiProvider } from "@/services/ai/geminiProvider";
-import { resolveBackgroundImage, BackgroundImageStrategy } from "@/services/imageResolver";
+import { resolveCarouselBackgroundImages, resolveBackgroundImage, BackgroundImageStrategy } from "@/services/imageResolver";
 import { renderCarouselSlides } from "@/services/templated";
 import { stitchSlidesToPdf } from "@/services/pdfStitcher";
 import prisma from "@/lib/prisma";
 import { Prisma, PlatformType, OutputFormatType, BackgroundImageStrategy as PrismaBgStrategy, ExecutionStatus } from "@prisma/client";
 import { getOrCreateDefaultWorkspace, fallbackStore } from "@/lib/workspace";
+import { CarouselSlide } from "@/services/ai/types";
 
 // POST /api/v1/workflows/run
 // Executes an end-to-end repurposing pipeline run for a workflow or single URL
@@ -170,12 +171,7 @@ export async function POST(req: Request) {
 
     // 6. AI Processing with Gemini Flash
     const t1 = Date.now();
-    let slidesData: Array<{
-      slide_index: number;
-      headline: string;
-      body: string;
-      slide_type: "HOOK" | "INSIGHT" | "CTA";
-    }> = [];
+    let slidesData: CarouselSlide[] = [];
     let postCaption = "";
     let postHashtags: string[] = [];
     let visualKeywords: string[] = [];
@@ -210,20 +206,36 @@ export async function POST(req: Request) {
     }
     timings.ai_summarize_ms = Date.now() - t1;
 
-    // 7. Resolve Background Image
+    // 7. Resolve Background Image Strategy (per-slide unique images with article priority & AI smart crop)
     const t2 = Date.now();
-    const resolvedBgUrl = await resolveBackgroundImage({
-      strategy: backgroundStrategy,
-      articleImageUrl: scraped.featuredImageUrl,
-      visualKeywords,
-    });
+    if (outputFormat === "MULTI_SLIDE_CAROUSEL") {
+      const resolvedBgImages = await resolveCarouselBackgroundImages({
+        strategy: backgroundStrategy,
+        articleImages: scraped.images || (scraped.featuredImageUrl ? [scraped.featuredImageUrl] : []),
+        slides: slidesData,
+        fallbackKeywords: visualKeywords,
+        aspectRatio: "1:1",
+      });
+      slidesData.forEach((slide, idx) => {
+        slide.background_image_url = resolvedBgImages[idx] || null;
+      });
+    } else {
+      const singleBgUrl = await resolveBackgroundImage({
+        strategy: backgroundStrategy,
+        articleImageUrl: scraped.featuredImageUrl || scraped.images?.[0] || null,
+        visualKeywords,
+        aspectRatio: "16:9",
+      });
+      if (slidesData[0]) {
+        slidesData[0].background_image_url = singleBgUrl;
+      }
+    }
     timings.image_resolve_ms = Date.now() - t2;
 
     // 8. Batch Render Slides with Templated.io
     const t3 = Date.now();
     const renderedSlides = await renderCarouselSlides(templateId, slidesData, {
       brandKitLogoUrl: brandLogoUrl,
-      backgroundImageUrl: resolvedBgUrl,
       externalId: workspaceId,
     });
     timings.templated_render_ms = Date.now() - t3;

@@ -1,0 +1,3 @@
+This folder contains interesting design elements. You can use them if you find apropriate, you can change parts of their code/identity, you can omit them at all if they don't fit anywhere.
+It's a collection of nice parts i found online. These can be one of appearances on the website, if you choose to use one of these elements it doesn't have to be a reccuring thing over all 
+the pages.

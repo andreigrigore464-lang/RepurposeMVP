@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getOrCreateDefaultWorkspace, fallbackStore, STARTER_TEMPLATES, isDatabaseAvailable } from "@/lib/workspace";
-import { listTemplatedTemplates, extractLayerMappings } from "@/lib/templated";
+import {
+  listTemplatedTemplates,
+  normalizeTemplateConfig,
+  isTemplateConfigured,
+  dynamicConfigToLegacyMappings,
+  autoHeuristicLayerConfig,
+  DynamicTemplateConfig,
+} from "@/lib/templated";
 
 // GET /api/v1/templates
 // Returns templates for the workspace, optionally syncing with Templated.io cloud
@@ -23,7 +30,9 @@ export async function GET(req: Request) {
       previewImageUrl: string;
       aspectRatio: string;
       hasBackgroundPlaceholder: boolean;
+      isConfigured: boolean;
       layerMappings: Record<string, string>;
+      dynamicConfig: DynamicTemplateConfig;
       createdAt: string | Date;
       updatedAt?: string | Date;
     }> = [];
@@ -31,76 +40,105 @@ export async function GET(req: Request) {
     // 1. Fetch from Database / Fallback Store
     const dbOnline = await isDatabaseAvailable();
     if (!dbOnline) {
-      templates = fallbackStore.templates.filter((t) => t.workspaceId === workspaceId || !t.workspaceId);
+      templates = fallbackStore.templates
+        .filter((t) => t.workspaceId === workspaceId || !t.workspaceId)
+        .map((t) => {
+          const dynamicConfig = normalizeTemplateConfig(t.dynamicConfig || t.layerMappings);
+          const configured = isTemplateConfigured({ isConfigured: t.isConfigured, layerMappings: dynamicConfig });
+          return {
+            ...t,
+            isConfigured: configured,
+            dynamicConfig,
+            layerMappings: dynamicConfigToLegacyMappings(dynamicConfig),
+          };
+        });
     } else {
       try {
         const dbTemplates = await prisma.brandTemplate.findMany({
           where: { workspaceId },
           orderBy: { createdAt: "desc" },
         });
-        templates = dbTemplates.map((t) => ({
-          ...t,
-          layerMappings: typeof t.layerMappings === "object" && t.layerMappings !== null
-            ? (t.layerMappings as Record<string, string>)
-            : {},
-        }));
+        templates = dbTemplates.map((t) => {
+          const dynamicConfig = normalizeTemplateConfig(t.layerMappings);
+          const configured = isTemplateConfigured(dynamicConfig);
+          return {
+            ...t,
+            isConfigured: configured,
+            dynamicConfig,
+            layerMappings: dynamicConfigToLegacyMappings(dynamicConfig),
+          };
+        });
       } catch {
-        templates = fallbackStore.templates.filter((t) => t.workspaceId === workspaceId);
+        templates = fallbackStore.templates
+          .filter((t) => t.workspaceId === workspaceId)
+          .map((t) => {
+            const dynamicConfig = normalizeTemplateConfig(t.dynamicConfig || t.layerMappings);
+            const configured = isTemplateConfigured(dynamicConfig);
+            return {
+              ...t,
+              isConfigured: configured,
+              dynamicConfig,
+              layerMappings: dynamicConfigToLegacyMappings(dynamicConfig),
+            };
+          });
       }
     }
 
-    // 2. Optionally sync with Templated.io cloud for this workspace external_id
-    if (shouldSync && process.env.TEMPLATED_API_KEY) {
+    // 2. Fetch live templates from Templated.io cloud & sync thumbnail previews
+    if (process.env.TEMPLATED_API_KEY) {
       try {
-        const cloudTemplates = await listTemplatedTemplates(workspaceId);
-        for (const cloudTmpl of cloudTemplates) {
-          const exists = templates.some((t) => t.templatedTemplateId === cloudTmpl.id);
-          if (!exists) {
-            const width = cloudTmpl.width || 1080;
-            const height = cloudTmpl.height || 1080;
-            const aspectRatio = width === height ? "1:1" : width > height ? "16:9" : "4:5";
-            const layerMappings = extractLayerMappings(cloudTmpl.layers || []);
-            const previewImageUrl =
-              cloudTmpl.preview_url ||
-              cloudTmpl.thumbnail_url ||
-              "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop";
+        const cloudTemplates = await listTemplatedTemplates();
+        const cloudMap = new Map(cloudTemplates.map((c) => [c.id, c]));
 
-            try {
-              const created = await prisma.brandTemplate.create({
-                data: {
-                  workspaceId,
-                  name: cloudTmpl.name || "Templated Cloud Template",
-                  templatedTemplateId: cloudTmpl.id,
-                  previewImageUrl,
-                  aspectRatio,
-                  hasBackgroundPlaceholder: true,
-                  layerMappings,
-                },
-              });
-              templates.unshift({
-                ...created,
-                layerMappings: created.layerMappings as Record<string, string>,
-              });
-            } catch {
-              const memoryTmpl = {
-                id: `tmpl-cloud-${Date.now()}-${cloudTmpl.id}`,
-                workspaceId,
-                name: cloudTmpl.name || "Templated Cloud Template",
-                templatedTemplateId: cloudTmpl.id,
-                previewImageUrl,
-                aspectRatio,
-                hasBackgroundPlaceholder: true,
-                layerMappings,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-              };
-              fallbackStore.templates.unshift(memoryTmpl);
-              templates.unshift(memoryTmpl);
+        // Update preview images of existing templates
+        for (const t of templates) {
+          const cloud = cloudMap.get(t.templatedTemplateId);
+          if (cloud) {
+            if (cloud.preview_url) {
+              t.previewImageUrl = cloud.preview_url;
             }
+            if (cloud.name && (!t.name || t.name === "Untitled Template" || t.name.startsWith("Templated "))) {
+              t.name = cloud.name;
+            }
+          } else if (t.templatedTemplateId && t.templatedTemplateId.includes("-")) {
+            t.previewImageUrl = `https://templated-assets.s3.amazonaws.com/public/thumbnail/${t.templatedTemplateId}.webp`;
+          }
+        }
+
+        // Add any cloud templates not yet in workspace
+        for (const cloud of cloudTemplates) {
+          const exists = templates.some((t) => t.templatedTemplateId === cloud.id);
+          if (!exists) {
+            const width = cloud.width || 1080;
+            const height = cloud.height || 1080;
+            const aspectRatio = width === height ? "1:1" : width > height ? "16:9" : "4:5";
+            const autoDynamic = autoHeuristicLayerConfig(cloud.layers || []);
+            const previewImageUrl =
+              cloud.preview_url ||
+              `https://templated-assets.s3.amazonaws.com/public/thumbnail/${cloud.id}.webp`;
+
+            const newTmpl = {
+              id: `tmpl-cloud-${cloud.id}`,
+              workspaceId,
+              name: cloud.name || "Templated Template",
+              templatedTemplateId: cloud.id,
+              previewImageUrl,
+              aspectRatio,
+              hasBackgroundPlaceholder: true,
+              isConfigured: false, // Cloud discovered templates start unconfigured until reviewed
+              dynamicConfig: {
+                ...autoDynamic,
+                isConfigured: false,
+              },
+              layerMappings: dynamicConfigToLegacyMappings(autoDynamic),
+              createdAt: cloud.created_at || new Date().toISOString(),
+              updatedAt: cloud.updated_at || new Date().toISOString(),
+            };
+            templates.unshift(newTmpl);
           }
         }
       } catch (err) {
-        console.warn("[Templates Sync Warning]:", err);
+        console.warn("[Templates Cloud Sync Warning]:", err);
       }
     }
 
@@ -139,6 +177,7 @@ export async function POST(req: Request) {
 
       const imported = [];
       for (const starter of startersToImport) {
+        const dynamicConfig = starter.dynamicConfig || normalizeTemplateConfig(starter.layerMappings);
         try {
           const created = await prisma.brandTemplate.create({
             data: {
@@ -148,7 +187,7 @@ export async function POST(req: Request) {
               previewImageUrl: starter.previewImageUrl,
               aspectRatio: starter.aspectRatio,
               hasBackgroundPlaceholder: starter.hasBackgroundPlaceholder,
-              layerMappings: starter.layerMappings,
+              layerMappings: dynamicConfig as unknown as object,
             },
           });
           imported.push(created);
@@ -161,7 +200,9 @@ export async function POST(req: Request) {
             previewImageUrl: starter.previewImageUrl,
             aspectRatio: starter.aspectRatio,
             hasBackgroundPlaceholder: starter.hasBackgroundPlaceholder,
+            isConfigured: true,
             layerMappings: starter.layerMappings,
+            dynamicConfig,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -180,13 +221,8 @@ export async function POST(req: Request) {
       previewImageUrl,
       aspectRatio = "1:1",
       hasBackgroundPlaceholder = true,
-      layerMappings = {
-        headline_layer: "headline_text",
-        body_layer: "body_text",
-        background_layer: "background_image",
-        logo_layer: "brand_logo",
-        counter_layer: "slide_counter",
-      },
+      dynamicConfig: incomingDynamicConfig,
+      layerMappings: incomingLayerMappings,
       brandKitId,
     } = body;
 
@@ -196,6 +232,18 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    // Normalize config to version 2 DynamicTemplateConfig
+    const normalizedConfig = normalizeTemplateConfig(
+      incomingDynamicConfig || incomingLayerMappings
+    );
+
+    // Save with explicit isConfigured flag
+    const finalConfig: DynamicTemplateConfig = {
+      ...normalizedConfig,
+      isConfigured: normalizedConfig.fields.some((f) => f.role !== "none" && f.layerKey),
+      configuredAt: new Date().toISOString(),
+    };
 
     try {
       let defaultKitId = brandKitId;
@@ -218,11 +266,19 @@ export async function POST(req: Request) {
               "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
             aspectRatio,
             hasBackgroundPlaceholder,
-            layerMappings,
+            layerMappings: finalConfig as unknown as object,
             brandKitId: defaultKitId,
           },
         });
-        return NextResponse.json({ success: true, template });
+        return NextResponse.json({
+          success: true,
+          template: {
+            ...template,
+            dynamicConfig: finalConfig,
+            layerMappings: dynamicConfigToLegacyMappings(finalConfig),
+            isConfigured: finalConfig.isConfigured,
+          },
+        });
       }
 
       // Create new template
@@ -237,11 +293,22 @@ export async function POST(req: Request) {
             "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
           aspectRatio,
           hasBackgroundPlaceholder,
-          layerMappings,
+          layerMappings: finalConfig as unknown as object,
         },
       });
 
-      return NextResponse.json({ success: true, template }, { status: 201 });
+      return NextResponse.json(
+        {
+          success: true,
+          template: {
+            ...template,
+            dynamicConfig: finalConfig,
+            layerMappings: dynamicConfigToLegacyMappings(finalConfig),
+            isConfigured: finalConfig.isConfigured,
+          },
+        },
+        { status: 201 }
+      );
     } catch {
       // Offline fallback
       if (id) {
@@ -254,10 +321,15 @@ export async function POST(req: Request) {
             previewImageUrl: previewImageUrl || fallbackStore.templates[existingIdx].previewImageUrl,
             aspectRatio,
             hasBackgroundPlaceholder,
-            layerMappings,
+            isConfigured: finalConfig.isConfigured,
+            layerMappings: dynamicConfigToLegacyMappings(finalConfig),
+            dynamicConfig: finalConfig,
             updatedAt: new Date().toISOString(),
           };
-          return NextResponse.json({ success: true, template: fallbackStore.templates[existingIdx] });
+          return NextResponse.json({
+            success: true,
+            template: fallbackStore.templates[existingIdx],
+          });
         }
       }
 
@@ -271,7 +343,9 @@ export async function POST(req: Request) {
           "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
         aspectRatio,
         hasBackgroundPlaceholder,
-        layerMappings,
+        isConfigured: finalConfig.isConfigured,
+        layerMappings: dynamicConfigToLegacyMappings(finalConfig),
+        dynamicConfig: finalConfig,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };

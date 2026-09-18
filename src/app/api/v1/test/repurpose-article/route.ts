@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { scrapeArticle } from "@/services/scraper";
 import { geminiProvider } from "@/services/ai/geminiProvider";
-import { resolveBackgroundImage, BackgroundImageStrategy } from "@/services/imageResolver";
+import { resolveCarouselBackgroundImages, resolveBackgroundImage, BackgroundImageStrategy } from "@/services/imageResolver";
 import { renderCarouselSlides } from "@/services/templated";
 import { stitchSlidesToPdf } from "@/services/pdfStitcher";
 import prisma from "@/lib/prisma";
@@ -48,14 +48,21 @@ export async function POST(req: Request) {
     );
     timings.ai_summarize_ms = Date.now() - t1;
 
-    // 4. Resolve Background Image Strategy
+    // 4. Resolve Background Image Strategy (per-slide unique images with article priority & AI smart crop)
     const t2 = Date.now();
-    const resolvedBgImageUrl = await resolveBackgroundImage({
+    const resolvedBgImages = await resolveCarouselBackgroundImages({
       strategy: backgroundStrategy,
-      articleImageUrl: scrapedArticle.featuredImageUrl,
-      visualKeywords: carouselSummary.visualSearchKeywords,
+      articleImages: scrapedArticle.images || (scrapedArticle.featuredImageUrl ? [scrapedArticle.featuredImageUrl] : []),
+      slides: carouselSummary.slides,
+      fallbackKeywords: carouselSummary.visualSearchKeywords,
+      aspectRatio: "1:1",
     });
     timings.image_resolve_ms = Date.now() - t2;
+
+    // Attach resolved background URLs to individual slides
+    carouselSummary.slides.forEach((slide, idx) => {
+      slide.background_image_url = resolvedBgImages[idx] || null;
+    });
 
     // 5. Batch Render Slides with Templated.io
     const t3 = Date.now();
@@ -64,7 +71,6 @@ export async function POST(req: Request) {
       carouselSummary.slides,
       {
         brandKitLogoUrl: brandLogoUrl,
-        backgroundImageUrl: resolvedBgImageUrl,
         externalId: workspace.id,
       }
     );
@@ -97,7 +103,7 @@ export async function POST(req: Request) {
         aiSummary: carouselSummary,
         background: {
           strategy: backgroundStrategy,
-          resolvedImageUrl: resolvedBgImageUrl,
+          resolvedImages: resolvedBgImages,
         },
         renderedSlides,
         pdfDocument: {

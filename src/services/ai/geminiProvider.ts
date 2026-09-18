@@ -5,7 +5,7 @@ export class GeminiProvider implements LLMProvider {
   private client: GoogleGenAI | null = null;
   private modelName: string;
 
-  constructor(apiKey?: string, modelName = "gemini-2.0-flash") {
+  constructor(apiKey?: string, modelName = "gemini-2.5-flash") {
     const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
     this.modelName = modelName;
 
@@ -41,7 +41,8 @@ Requirements:
    - Slide 1: HOOK (Attention-grabbing headline <= 8 words, punchy subtext <= 25 words).
    - Slides 2 to 4/5: INSIGHT (High-impact key takeaways, max 8 words headline, max 30 words body).
    - Final Slide: CTA (Call-to-action encouraging saving, sharing, or discussing).
-4. visualSearchKeywords: 2 to 3 aesthetic, atmospheric keywords (e.g. ["minimalist architecture", "dark abstract neon", "modern workspace"]) suitable for finding high-quality stock photo backgrounds.
+   - Each slide MUST include a dedicated visual_keyword (2 to 3 precise aesthetic search terms specifically relevant to that slide's topic).
+4. visualSearchKeywords: 2 to 3 overall atmospheric keywords (e.g. ["minimalist architecture", "dark abstract neon", "modern workspace"]).
 5. suggestedHashtags: 3 to 5 relevant industry hashtags (e.g. ["#ContentMarketing", "#Productivity", "#AI"]).
 
 Output MUST strictly be valid JSON matching this schema:
@@ -53,7 +54,8 @@ Output MUST strictly be valid JSON matching this schema:
       "slide_index": 1,
       "headline": "string (max 8 words)",
       "body": "string (max 30 words)",
-      "slide_type": "HOOK" | "INSIGHT" | "CTA"
+      "slide_type": "HOOK" | "INSIGHT" | "CTA",
+      "visual_keyword": "string (2-3 words for targeted photo search)"
     }
   ],
   "visualSearchKeywords": ["string", "string"],
@@ -85,6 +87,7 @@ Output MUST strictly be valid JSON matching this schema:
         headline: s.headline || `Key Takeaway #${idx + 1}`,
         body: s.body || "",
         slide_type: idx === 0 ? "HOOK" : idx === parsed.slides.length - 1 ? "CTA" : (s.slide_type || "INSIGHT"),
+        visual_keyword: s.visual_keyword || parsed.visualSearchKeywords?.[idx % (parsed.visualSearchKeywords.length || 1)] || "minimalist tech abstract",
       }));
 
       return parsed;
@@ -172,30 +175,35 @@ Output MUST strictly be valid JSON:
         headline: effectiveTitle.slice(0, 50),
         body: hookBody,
         slide_type: "HOOK" as const,
+        visual_keyword: "modern architectural hook focal",
       },
       {
         slide_index: 2,
         headline: "1. The Power of Micro-Content",
         body: (rawParagraphs[1] || "Readers scan before they commit. Breaking complex essays into visual slide bite-sized insights multiplies retention by 4x.").slice(0, 160),
         slide_type: "INSIGHT" as const,
+        visual_keyword: "digital data reading technology",
       },
       {
         slide_index: 3,
         headline: "2. Strategic Visual Hierarchy",
         body: (rawParagraphs[2] || "Pair high-contrast headlines with clean typography and subtle background imagery to create a scroll-stopping visual hook.").slice(0, 160),
         slide_type: "INSIGHT" as const,
+        visual_keyword: "creative workspace typography design",
       },
       {
         slide_index: 4,
         headline: "3. Frictionless Distribution",
         body: (rawParagraphs[3] || "Repurpose once, publish everywhere. Export directly to multi-page LinkedIn PDFs and Instagram carousels with automated brand styling.").slice(0, 160),
         slide_type: "INSIGHT" as const,
+        visual_keyword: "cloud network distribution technology",
       },
       {
         slide_index: 5,
         headline: "Save This For Your Next Post",
         body: "Swipe through whenever you draft new content. Follow for more actionable guides on scaling your organic audience.",
         slide_type: "CTA" as const,
+        visual_keyword: "community growth discussion engagement",
       },
     ];
 

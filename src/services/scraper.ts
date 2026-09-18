@@ -9,6 +9,7 @@ export interface ScrapedArticle {
   plainText: string;
   author: string | null;
   featuredImageUrl: string | null;
+  images: string[];
   siteName: string | null;
   publishedAt: string | null;
   wordCount: number;
@@ -187,6 +188,30 @@ export function parseArticleHtml(html: string, url: string): ScrapedArticle {
     doc.querySelector('meta[name="pubdate"]')?.getAttribute("content") ||
     doc.querySelector('meta[name="date"]')?.getAttribute("content");
 
+  // Extract all in-article image URLs from document before stripping noise
+  const extractedImages: string[] = [];
+  const rawImgElements = doc.querySelectorAll("article img, main img, .post-content img, .article-content img, .content img, img");
+  rawImgElements.forEach((img) => {
+    const src =
+      img.getAttribute("src") ||
+      img.getAttribute("data-src") ||
+      img.getAttribute("data-original") ||
+      img.getAttribute("data-lazy-src");
+
+    if (src && !src.startsWith("data:") && !src.includes("avatar") && !src.includes("tracking") && !src.includes("pixel") && !src.includes("logo") && !src.includes(".svg")) {
+      try {
+        const absoluteUrl = new URL(src, url).toString();
+        if (absoluteUrl.startsWith("http://") || absoluteUrl.startsWith("https://")) {
+          if (!extractedImages.includes(absoluteUrl)) {
+            extractedImages.push(absoluteUrl);
+          }
+        }
+      } catch {
+        // ignore invalid URL
+      }
+    }
+  });
+
   // Remove noise elements before Readability parsing
   const noiseSelectors = [
     "script",
@@ -272,6 +297,17 @@ export function parseArticleHtml(html: string, url: string): ScrapedArticle {
     }
   }
 
+  // Construct prioritized list of all article images: featured image first, followed by in-article body images
+  const allImages: string[] = [];
+  if (featuredImageUrl) {
+    allImages.push(featuredImageUrl);
+  }
+  for (const imgUrl of extractedImages) {
+    if (!allImages.includes(imgUrl)) {
+      allImages.push(imgUrl);
+    }
+  }
+
   return {
     url,
     title,
@@ -279,6 +315,7 @@ export function parseArticleHtml(html: string, url: string): ScrapedArticle {
     plainText,
     author,
     featuredImageUrl,
+    images: allImages,
     siteName,
     publishedAt,
     wordCount,
@@ -299,13 +336,21 @@ Step 3: Pair with dynamic visuals. High-contrast typography, brand color tokens,
 Step 4: Include a strong Call-to-Action (CTA). Direct your audience to save the carousel, share with their network, or read the full article.
 Step 5: Automate multi-platform distribution. Repurposing across LinkedIn PDF carousels, Instagram feeds, and Pinterest cards maximizes organic reach with zero extra overhead.`;
 
+  const sampleFeatured = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop";
+  const sampleImages = [
+    sampleFeatured,
+    "https://images.unsplash.com/photo-1557683316-973673baf926?q=80&w=1200&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=1200&auto=format&fit=crop",
+  ];
+
   return {
     url,
     title: sampleTitle,
     bodyMarkdown: sampleBody,
     plainText: sampleBody,
     author: "Repurpose AI Team",
-    featuredImageUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop",
+    featuredImageUrl: sampleFeatured,
+    images: sampleImages,
     siteName: "RepurposeAI Blog",
     publishedAt: new Date().toISOString(),
     wordCount: sampleBody.split(/\s+/).length,
