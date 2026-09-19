@@ -46,6 +46,20 @@ export interface RenderResponse {
   error?: string;
 }
 
+export const MOCK_TEMPLATE_ID = "mock_simulation_template";
+
+/**
+ * Checks if a template ID refers to the zero-credit mock simulation template.
+ */
+export function isMockTemplate(templateId?: string | null): boolean {
+  if (!templateId) return false;
+  return (
+    templateId === MOCK_TEMPLATE_ID ||
+    templateId === "mock_template" ||
+    templateId.startsWith("mock_")
+  );
+}
+
 const TEMPLATED_API_BASE = "https://api.templated.io/v1";
 
 /**
@@ -89,8 +103,12 @@ export async function listTemplatedTemplates(externalId?: string): Promise<Templ
     const rawList = Array.isArray(data) ? data : data.templates || data.value || [];
     return rawList.map((t: Record<string, unknown>) => {
       const id = (t.id || t._id) as string;
-      const thumb =
-        (t.thumbnail || t.preview_url || t.thumbnail_url || (id ? `https://templated-assets.s3.amazonaws.com/public/thumbnail/${id}.webp` : "")) as string;
+      const updatedRaw = (t.updatedAt || t.updated_at || t.modified_at || t.createdAt || t.created_at) as string;
+      const timestamp = updatedRaw ? new Date(updatedRaw).getTime() : Date.now();
+      const baseThumb = (t.thumbnail || t.preview_url || t.thumbnail_url || (id ? `https://templated-assets.s3.amazonaws.com/public/thumbnail/${id}.webp` : "")) as string;
+      const cleanThumb = baseThumb.split("?")[0];
+      const thumb = cleanThumb ? `${cleanThumb}?v=${timestamp}` : "";
+
       return {
         id,
         name: (t.name || "Untitled Template") as string,
@@ -99,9 +117,9 @@ export async function listTemplatedTemplates(externalId?: string): Promise<Templ
         preview_url: thumb,
         thumbnail_url: thumb,
         layers: Array.isArray(t.layers) ? t.layers : [],
-        external_id: t.externalId as string,
-        created_at: t.createdAt as string,
-        updated_at: t.updatedAt as string,
+        external_id: (t.externalId || t.external_id) as string,
+        created_at: (t.createdAt || t.created_at) as string,
+        updated_at: (t.updatedAt || t.updated_at) as string,
       };
     });
   } catch (error) {
@@ -206,6 +224,26 @@ export async function renderTemplate(options: RenderRequestOptions): Promise<Ren
   } catch (error) {
     console.error("[Templated API Error] renderTemplate:", error);
     throw error;
+  }
+}
+
+/**
+ * Renders a fresh, live snapshot preview of a template directly from Templated.io's live canvas.
+ */
+export async function renderTemplateDefaultPreview(templateId: string): Promise<string | null> {
+  const apiKey = process.env.TEMPLATED_API_KEY;
+  if (!apiKey || !templateId) return null;
+
+  try {
+    const res = await renderTemplate({
+      templateId,
+      layers: {},
+      async: false,
+    });
+    return res?.render_url || res?.url || res?.download_url || null;
+  } catch (err) {
+    console.warn(`[renderTemplateDefaultPreview Error for ${templateId}]:`, err);
+    return null;
   }
 }
 

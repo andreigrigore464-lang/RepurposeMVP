@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { scrapeArticle, fetchRssFeedItems } from "@/services/scraper";
 import { geminiProvider } from "@/services/ai/geminiProvider";
-import { resolveCarouselBackgroundImages, resolveBackgroundImage, BackgroundImageStrategy } from "@/services/imageResolver";
+import { resolveCarouselBackgroundImages, resolveBackgroundImage, resolveMultipleImages, BackgroundImageStrategy } from "@/services/imageResolver";
 import { renderCarouselSlides } from "@/services/templated";
+import { isMockTemplate, normalizeTemplateConfig, DynamicTemplateConfig } from "@/lib/templated";
 import { stitchSlidesToPdf } from "@/services/pdfStitcher";
 import prisma from "@/lib/prisma";
 import { Prisma, PlatformType, OutputFormatType, BackgroundImageStrategy as PrismaBgStrategy, ExecutionStatus } from "@prisma/client";
-import { getOrCreateDefaultWorkspace, fallbackStore } from "@/lib/workspace";
+import { getCurrentWorkspace, fallbackStore } from "@/lib/workspace";
 import { CarouselSlide } from "@/services/ai/types";
 
 // POST /api/v1/workflows/run
@@ -19,11 +20,10 @@ export async function POST(req: Request) {
     const body = await req.json();
     const {
       workflowId,
-      brandKitId,
     } = body;
 
-    const defaultWorkspace = await getOrCreateDefaultWorkspace();
-    const workspaceId = defaultWorkspace.id;
+    const userSession = await getCurrentWorkspace();
+    const workspaceId = userSession.workspace.id;
 
     // 1. Resolve workflow config if workflowId is provided
     let workflowConfig: {
@@ -135,23 +135,12 @@ export async function POST(req: Request) {
       timings.rss_fetch_ms = Date.now() - tRss;
     }
 
-    // 3. Fetch Brand Kit Logo if available
-    let brandLogoUrl: string | null = null;
-    try {
-      const brandKit = brandKitId
-        ? await prisma.brandKit.findUnique({ where: { id: brandKitId } })
-        : await prisma.brandKit.findFirst({ where: { workspaceId } });
-      brandLogoUrl = brandKit?.logoCloudinaryUrl || null;
-    } catch {
-      // offline
-    }
-
-    // 4. Scrape Article
+    // 3. Scrape Article
     const t0 = Date.now();
     const scraped = await scrapeArticle(articleToScrapeUrl);
     timings.scrape_ms = Date.now() - t0;
 
-    // 5. Check Information Density / Word Count Filter Guard
+    // 4. Check Information Density / Word Count Filter Guard
     if (scraped.wordCount < minWordCount && !body.bypassWordCountFilter) {
       return NextResponse.json(
         {
@@ -169,7 +158,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 6. AI Processing with Gemini Flash
+    // 5. AI Processing with Gemini Flash
     const t1 = Date.now();
     let slidesData: CarouselSlide[] = [];
     let postCaption = "";
@@ -206,49 +195,136 @@ export async function POST(req: Request) {
     }
     timings.ai_summarize_ms = Date.now() - t1;
 
-    // 7. Resolve Background Image Strategy (per-slide unique images with article priority & AI smart crop)
-    const t2 = Date.now();
-    if (outputFormat === "MULTI_SLIDE_CAROUSEL") {
-      const resolvedBgImages = await resolveCarouselBackgroundImages({
-        strategy: backgroundStrategy,
-        articleImages: scraped.images || (scraped.featuredImageUrl ? [scraped.featuredImageUrl] : []),
-        slides: slidesData,
-        fallbackKeywords: visualKeywords,
-        aspectRatio: "1:1",
+    // 6. Template Configuration & Image Placeholders Inspection
+    let templateDynamicConfig: DynamicTemplateConfig | null = null;
+    let templateAspectRatio = "1:1";
+    try {
+      const dbTmpl = await prisma.brandTemplate.findFirst({
+        where: {
+          OR: [{ templatedTemplateId: templateId }, { id: templateId }],
+        },
       });
-      slidesData.forEach((slide, idx) => {
-        slide.background_image_url = resolvedBgImages[idx] || null;
-      });
-    } else {
-      const singleBgUrl = await resolveBackgroundImage({
-        strategy: backgroundStrategy,
-        articleImageUrl: scraped.featuredImageUrl || scraped.images?.[0] || null,
-        visualKeywords,
-        aspectRatio: "16:9",
-      });
-      if (slidesData[0]) {
-        slidesData[0].background_image_url = singleBgUrl;
+      if (dbTmpl) {
+        templateAspectRatio = dbTmpl.aspectRatio || "1:1";
+        if (dbTmpl.layerMappings) {
+          templateDynamicConfig = normalizeTemplateConfig(dbTmpl.layerMappings as Record<string, unknown>);
+        }
+      }
+    } catch {
+      const fallbackTmpl = fallbackStore.templates.find(
+        (t) => t.templatedTemplateId === templateId || t.id === templateId
+      );
+      if (fallbackTmpl) {
+        templateAspectRatio = fallbackTmpl.aspectRatio || "1:1";
+        if (fallbackTmpl.layerMappings) {
+          templateDynamicConfig = normalizeTemplateConfig(fallbackTmpl.layerMappings as Record<string, unknown>);
+        }
       }
     }
+
+    const isMock = isMockTemplate(templateId);
+
+    // Identify configured image placeholders (Hero image, secondary images, brand logo, etc.)
+    const configuredImageFields = (templateDynamicConfig?.fields || []).filter(
+      (f) =>
+        f.type === "image" ||
+        f.role === "hero_image" ||
+        f.role === "secondary_image" ||
+        f.role === "brand_logo"
+    );
+
+    // If template defines multiple image placeholders (e.g. 1 hero + 2 secondary = 3 images), resolve at least that many images
+    const targetImageCount = Math.max(
+      configuredImageFields.length,
+      outputFormat === "MULTI_SLIDE_CAROUSEL" ? slidesData.length : 1
+    );
+
+    const t2 = Date.now();
+    const resolvedImages = await resolveMultipleImages({
+      count: targetImageCount,
+      strategy: backgroundStrategy,
+      articleImages: scraped.images || (scraped.featuredImageUrl ? [scraped.featuredImageUrl] : []),
+      visualKeywords,
+      aspectRatio: templateAspectRatio,
+    });
+
+    // Assign resolved images to slides
+    slidesData.forEach((slide, idx) => {
+      slide.background_image_url = resolvedImages[idx] || resolvedImages[0] || null;
+    });
     timings.image_resolve_ms = Date.now() - t2;
 
-    // 8. Batch Render Slides with Templated.io
+    // 7. Render Slides (Templated.io vs Zero-Credit Simulation Mock Path)
     const t3 = Date.now();
-    const renderedSlides = await renderCarouselSlides(templateId, slidesData, {
-      brandKitLogoUrl: brandLogoUrl,
-      externalId: workspaceId,
-    });
-    timings.templated_render_ms = Date.now() - t3;
+    let renderedSlides: Array<{
+      slide_index: number;
+      headline: string;
+      body: string;
+      rendered_png_url: string;
+      background_image_url?: string | null;
+    }> = [];
 
-    // 9. Stitch PDF (if multi-slide carousel)
+    if (isMock) {
+      // ZERO-CREDIT MOCK PATH:
+      // Completely bypass Templated.io API.
+      // If template configured multiple image placeholders (e.g. 1 hero + 2 secondary = 3 images)
+      // or if multiple slides/images were generated, output each image as a slide so all are visible one at a time.
+      const totalMockSlides = Math.max(slidesData.length, resolvedImages.length);
+
+      renderedSlides = Array.from({ length: totalMockSlides }, (_, idx) => {
+        const slideData = slidesData[idx] || slidesData[0] || {
+          slide_index: idx + 1,
+          headline: `Slide ${idx + 1}`,
+          body: "",
+        };
+        const slideImg =
+          resolvedImages[idx] ||
+          resolvedImages[0] ||
+          "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1080&auto=format&fit=crop";
+
+        return {
+          slide_index: idx + 1,
+          headline: slideData.headline || "",
+          body: slideData.body || "",
+          rendered_png_url: slideImg,
+          background_image_url: slideImg,
+        };
+      });
+
+      // Format all image placeholders and synthesized text fields into the description
+      const imageBreakdown = resolvedImages
+        .map((url, i) => {
+          const field = configuredImageFields[i];
+          const roleLabel = field ? `${field.label} (${field.layerKey || field.role})` : `Image #${i + 1}`;
+          return `• ${roleLabel}: ${url}`;
+        })
+        .join("\n");
+
+      const slideTextBreakdowns = slidesData
+        .map((s, idx) => {
+          const typeLabel = s.slide_type ? ` [${s.slide_type}]` : "";
+          return `📄 Slide ${s.slide_index || idx + 1}${typeLabel}:\n• Headline: ${s.headline || "(None)"}\n• Body: ${s.body || "(None)"}`;
+        })
+        .join("\n\n");
+
+      postCaption = `🧪 [SIMULATION MODE - 0 CREDITS CONSUMED]\nAll fetched content, resolved images, and AI-synthesized fields are displayed below for verification.\n\n${postCaption}\n\n---\n🖼️ RESOLVED IMAGES (${resolvedImages.length} total):\n${imageBreakdown}\n\n---\n📋 GENERATED SLIDE CONTENT BREAKDOWN:\n\n${slideTextBreakdowns}`;
+      timings.templated_render_ms = 0;
+    } else {
+      renderedSlides = await renderCarouselSlides(templateId, slidesData, {
+        externalId: workspaceId,
+      });
+      timings.templated_render_ms = Date.now() - t3;
+    }
+
+    // 9. Stitch PDF (if multi-slide carousel OR if mock template generated multiple images)
     let pdfUrl: string | null = null;
-    if (outputFormat === "MULTI_SLIDE_CAROUSEL" && renderedSlides.length > 1) {
+    if (renderedSlides.length > 1) {
       const t4 = Date.now();
       const pdfResult = await stitchSlidesToPdf(
         renderedSlides.map((s) => s.rendered_png_url),
         {
           title: scraped.title,
-          author: scraped.author || defaultWorkspace.name,
+          author: scraped.author || userSession.workspace.name,
           keywords: postHashtags,
         }
       );

@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Sparkles, ArrowRight } from "lucide-react";
+import { Show, UserButton } from "@clerk/nextjs";
 
 export function MarketingNav() {
   const pathname = usePathname();
@@ -53,15 +54,36 @@ export function MarketingNav() {
           })}
         </nav>
 
-        {/* Bridge Button */}
-        <div className="flex items-center gap-3">
-          <Link
-            href="/workflows"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white text-xs font-bold shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all active:scale-95 duration-200 cursor-pointer"
-          >
-            <span>Launch Studio</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </Link>
+        {/* Auth & Bridge Controls */}
+        <div className="flex items-center gap-2.5">
+          <Show when="signed-in">
+            <Link
+              href="/workflows"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white text-xs font-bold shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all active:scale-95 duration-200 cursor-pointer"
+            >
+              <span>Launch Studio</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+            <div className="pl-1 flex items-center">
+              <UserButton />
+            </div>
+          </Show>
+
+          <Show when="signed-out">
+            <Link
+              href="/waitlist?mode=sign-in"
+              className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+            >
+              Sign In
+            </Link>
+            <Link
+              href="/waitlist?mode=sign-up"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white text-xs font-bold shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all active:scale-95 duration-200 cursor-pointer"
+            >
+              <span>Join Waitlist</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </Show>
         </div>
       </div>
     </header>

@@ -15,6 +15,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import React from "react";
+import { UserButton } from "@clerk/nextjs";
 import { AmbientGlow } from "@/components/ui/ambient-glow";
 
 const NAV_ITEMS = [
@@ -198,8 +199,8 @@ export default function DashboardLayout({
               <span>Create Workflow</span>
             </Link>
 
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center text-xs font-bold text-white ring-2 ring-blue-500/30">
-              WO
+            <div className="flex items-center">
+              <UserButton />
             </div>
           </div>
         </header>

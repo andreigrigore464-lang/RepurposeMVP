@@ -153,13 +153,7 @@ function WorkflowsContent() {
     }, 4000);
   }, []);
 
-  const [customRunnerData, setCustomRunnerData] = useState({
-    articleUrl: "https://example.com/scale-content-repurposing",
-    templateId: "tmpl_hook_square_01",
-    backgroundStrategy: "ARTICLE_IMAGE_FIRST",
-    outputFormat: "MULTI_SLIDE_CAROUSEL",
-    destinationPlatform: "LINKEDIN",
-  });
+
 
   const fetchData = useCallback(async () => {
     try {
@@ -311,16 +305,10 @@ function WorkflowsContent() {
     setIsRunnerOpen(true);
   };
 
-  const handleOpenStandaloneRunner = () => {
-    setSelectedWorkflowForRun(null);
-    setTestUrlInput("https://example.com/scale-content-repurposing");
-    setGenerationResult(null);
-    setRunStep(0);
-    setIsRunnerOpen(true);
-  };
-
   const handleExecuteRun = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedWorkflowForRun) return;
+
     setIsRunning(true);
     setRunStep(1);
     setGenerationResult(null);
@@ -331,22 +319,10 @@ function WorkflowsContent() {
     }, 1100);
 
     try {
-      let payload: Record<string, unknown> = {};
-
-      if (selectedWorkflowForRun) {
-        payload = {
-          workflowId: selectedWorkflowForRun.id,
-          articleUrl: testUrlInput,
-        };
-      } else {
-        payload = {
-          articleUrl: customRunnerData.articleUrl,
-          templateId: customRunnerData.templateId,
-          backgroundStrategy: customRunnerData.backgroundStrategy,
-          outputFormat: customRunnerData.outputFormat,
-          destinationPlatform: customRunnerData.destinationPlatform,
-        };
-      }
+      const payload = {
+        workflowId: selectedWorkflowForRun.id,
+        articleUrl: testUrlInput,
+      };
 
       const res = await fetch("/api/v1/workflows/run", {
         method: "POST",
@@ -416,14 +392,6 @@ function WorkflowsContent() {
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleOpenStandaloneRunner}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-full glass-pill hover:bg-white/10 text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-sm"
-          >
-            <Play className="w-3.5 h-3.5 text-cyan-400 fill-current" />
-            <span>Test URL Repurpose</span>
-          </button>
-
           <Link
             href="/workflows/new"
             className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold text-xs transition-all shadow-lg shadow-blue-500/20 active:scale-95 cursor-pointer"
@@ -777,101 +745,37 @@ function WorkflowsContent() {
             </div>
 
             {/* Ingestion & Run Form */}
-            {!generationResult && (
+            {!generationResult && selectedWorkflowForRun && (
               <form onSubmit={handleExecuteRun} className="space-y-4">
-                {selectedWorkflowForRun ? (
-                  <div className="space-y-3">
-                    <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-300">Pipeline Configuration:</span>
-                        <span className="text-cyan-300 font-mono">
-                          {selectedWorkflowForRun.outputFormat} • {selectedWorkflowForRun.destinationPlatform}
-                        </span>
-                      </div>
-                      <div className="text-slate-400 text-[11px]">
-                        Template: {selectedWorkflowForRun.brandTemplateId || "Default"} | Strategy: {selectedWorkflowForRun.backgroundStrategy}
-                      </div>
+                <div className="space-y-3">
+                  <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-300">Pipeline Configuration:</span>
+                      <span className="text-cyan-300 font-mono">
+                        {selectedWorkflowForRun.outputFormat} • {selectedWorkflowForRun.destinationPlatform}
+                      </span>
                     </div>
-
-                    <div>
-                      <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                        {selectedWorkflowForRun.sourcePlatform === "BLOG_RSS"
-                          ? "RSS Feed / Article URL to Ingest"
-                          : "Target Article URL"}
-                      </label>
-                      <input
-                        type="url"
-                        required
-                        value={testUrlInput}
-                        onChange={(e) => setTestUrlInput(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#151824] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
-                        placeholder="https://techcrunch.com/feed/ or https://myblog.com/post-title"
-                      />
+                    <div className="text-slate-400 text-[11px]">
+                      Template: {selectedWorkflowForRun.brandTemplateId || "Default"} | Strategy: {selectedWorkflowForRun.backgroundStrategy}
                     </div>
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                        Source Article URL
-                      </label>
-                      <input
-                        type="url"
-                        required
-                        value={customRunnerData.articleUrl}
-                        onChange={(e) =>
-                          setCustomRunnerData({ ...customRunnerData, articleUrl: e.target.value })
-                        }
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#151824] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
-                        placeholder="https://example.com/scale-content-repurposing"
-                      />
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                          Output Format
-                        </label>
-                        <select
-                          value={customRunnerData.outputFormat}
-                          onChange={(e) =>
-                            setCustomRunnerData({ ...customRunnerData, outputFormat: e.target.value })
-                          }
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-[#151824] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
-                        >
-                          <option value="MULTI_SLIDE_CAROUSEL">Multi-Slide Carousel (5-6 slides)</option>
-                          <option value="SINGLE_IMAGE_CARD">Single Image Card (1 slide)</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-xs font-semibold text-slate-300 block">
-                            Background Strategy
-                          </label>
-                          <span className="text-[10px] text-cyan-400 font-mono">
-                            {customRunnerData.backgroundStrategy === "ARTICLE_IMAGE_FIRST"
-                              ? "Scrapes lead graphic"
-                              : customRunnerData.backgroundStrategy === "STOCK_SEARCH_ONLY"
-                              ? "AI Unsplash search"
-                              : "Solid brand gradient"}
-                          </span>
-                        </div>
-                        <select
-                          value={customRunnerData.backgroundStrategy}
-                          onChange={(e) =>
-                            setCustomRunnerData({ ...customRunnerData, backgroundStrategy: e.target.value })
-                          }
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-[#151824] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
-                        >
-                          <option value="ARTICLE_IMAGE_FIRST">Article Image First (Extracts hero visual from body)</option>
-                          <option value="STOCK_SEARCH_ONLY">Stock Search Only (Unsplash stock photography via AI)</option>
-                          <option value="SOLID_COLOR_ONLY">Solid Brand Color Only (Minimalist gradient theme)</option>
-                        </select>
-                      </div>
-                    </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                      {selectedWorkflowForRun.sourcePlatform === "BLOG_RSS"
+                        ? "RSS Feed / Article URL to Ingest"
+                        : "Target Article URL"}
+                    </label>
+                    <input
+                      type="url"
+                      required
+                      value={testUrlInput}
+                      onChange={(e) => setTestUrlInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#151824] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
+                      placeholder="https://techcrunch.com/feed/ or https://myblog.com/post-title"
+                    />
                   </div>
-                )}
+                </div>
 
                 {/* Progress Animation during run */}
                 {isRunning && (

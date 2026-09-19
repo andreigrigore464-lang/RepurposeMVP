@@ -1,26 +1,15 @@
 import prisma from "./prisma";
 import { DynamicTemplateConfig } from "./templated";
+import { isEmailWhitelisted } from "./whitelist";
+export { isEmailWhitelisted };
 
+// Multi-tenant workspace and account resolution
 export const DEFAULT_WORKSPACE_SLUG = "default-workspace";
-
-export interface MockBrandKit {
-  id: string;
-  workspaceId: string;
-  name: string;
-  logoCloudinaryUrl: string | null;
-  primaryColor: string;
-  secondaryColor: string;
-  accentColor: string;
-  fontFamily: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
 
 export interface MockWorkspace {
   id: string;
   name: string;
   slug: string;
-  brandKits: MockBrandKit[];
 }
 
 export interface StarterTemplateConfig {
@@ -41,209 +30,7 @@ export interface StarterTemplateConfig {
   dynamicConfig: DynamicTemplateConfig;
 }
 
-export const STARTER_TEMPLATES: StarterTemplateConfig[] = [
-  {
-    id: "tmpl-starter-1",
-    name: "Modern Carousel Hook (1:1)",
-    templatedTemplateId: "tmpl_hook_square_01",
-    previewImageUrl:
-      "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop",
-    aspectRatio: "1:1",
-    hasBackgroundPlaceholder: true,
-    isConfigured: true,
-    layerMappings: {
-      headline_layer: "headline_text",
-      body_layer: "body_text",
-      background_layer: "background_image",
-      logo_layer: "brand_logo",
-      counter_layer: "slide_counter",
-    },
-    dynamicConfig: {
-      version: 2,
-      isConfigured: true,
-      configuredAt: new Date().toISOString(),
-      fields: [
-        {
-          id: "field-starter1-headline",
-          layerKey: "headline_text",
-          type: "text",
-          role: "headline",
-          label: "Headline / Slide Hook",
-          promptInstruction: "High-impact opening headline or hook (punchy, max 8-12 words)",
-          characterLimit: 80,
-          isRequired: true,
-        },
-        {
-          id: "field-starter1-body",
-          layerKey: "body_text",
-          type: "text",
-          role: "body",
-          label: "Body Copy / Takeaway",
-          promptInstruction: "Concise explanatory paragraph or core takeaway",
-          characterLimit: 180,
-          isRequired: true,
-        },
-        {
-          id: "field-starter1-bg",
-          layerKey: "background_image",
-          type: "image",
-          role: "hero_image",
-          label: "Hero Background Visual",
-          promptInstruction: "Contextual featured photo or high quality background visual",
-          isRequired: false,
-        },
-        {
-          id: "field-starter1-logo",
-          layerKey: "brand_logo",
-          type: "image",
-          role: "brand_logo",
-          label: "Brand Logo / Avatar",
-          isRequired: false,
-        },
-        {
-          id: "field-starter1-counter",
-          layerKey: "slide_counter",
-          type: "counter",
-          role: "slide_counter",
-          label: "Slide Counter Index",
-          characterLimit: 10,
-          isRequired: false,
-        },
-      ],
-    },
-  },
-  {
-    id: "tmpl-starter-2",
-    name: "LinkedIn Deep-Dive Slide (4:5)",
-    templatedTemplateId: "tmpl_content_portrait_02",
-    previewImageUrl:
-      "https://images.unsplash.com/photo-1557683316-973673baf926?q=80&w=1000&auto=format&fit=crop",
-    aspectRatio: "4:5",
-    hasBackgroundPlaceholder: true,
-    isConfigured: true,
-    layerMappings: {
-      headline_layer: "headline_text",
-      body_layer: "body_text",
-      background_layer: "background_image",
-      logo_layer: "brand_logo",
-      counter_layer: "slide_counter",
-    },
-    dynamicConfig: {
-      version: 2,
-      isConfigured: true,
-      configuredAt: new Date().toISOString(),
-      fields: [
-        {
-          id: "field-starter2-headline",
-          layerKey: "headline_text",
-          type: "text",
-          role: "headline",
-          label: "Headline / Slide Hook",
-          promptInstruction: "Engaging step title or slide takeaway",
-          characterLimit: 75,
-          isRequired: true,
-        },
-        {
-          id: "field-starter2-body",
-          layerKey: "body_text",
-          type: "text",
-          role: "body",
-          label: "Body Copy / Takeaway",
-          promptInstruction: "Detailed breakdown or key insights paragraph",
-          characterLimit: 220,
-          isRequired: true,
-        },
-        {
-          id: "field-starter2-bg",
-          layerKey: "background_image",
-          type: "image",
-          role: "hero_image",
-          label: "Hero Background Visual",
-          promptInstruction: "Clean aesthetic background photo matching the subject",
-          isRequired: false,
-        },
-        {
-          id: "field-starter2-logo",
-          layerKey: "brand_logo",
-          type: "image",
-          role: "brand_logo",
-          label: "Brand Logo / Avatar",
-          isRequired: false,
-        },
-        {
-          id: "field-starter2-counter",
-          layerKey: "slide_counter",
-          type: "counter",
-          role: "slide_counter",
-          label: "Slide Counter Index",
-          characterLimit: 10,
-          isRequired: false,
-        },
-      ],
-    },
-  },
-  {
-    id: "tmpl-starter-3",
-    name: "Viral Social Card / Quote (16:9)",
-    templatedTemplateId: "tmpl_quote_landscape_03",
-    previewImageUrl:
-      "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=1000&auto=format&fit=crop",
-    aspectRatio: "16:9",
-    hasBackgroundPlaceholder: false,
-    isConfigured: true,
-    layerMappings: {
-      headline_layer: "headline_text",
-      body_layer: "body_text",
-      background_layer: "background_image",
-      logo_layer: "brand_logo",
-      counter_layer: "slide_counter",
-    },
-    dynamicConfig: {
-      version: 2,
-      isConfigured: true,
-      configuredAt: new Date().toISOString(),
-      fields: [
-        {
-          id: "field-starter3-headline",
-          layerKey: "headline_text",
-          type: "text",
-          role: "headline",
-          label: "Headline / Slide Hook",
-          promptInstruction: "Memorable quote or bold statement",
-          characterLimit: 90,
-          isRequired: true,
-        },
-        {
-          id: "field-starter3-body",
-          layerKey: "body_text",
-          type: "text",
-          role: "quote_author",
-          label: "Quote Author / Attribution",
-          promptInstruction: "Author name, source publication, or key metric citation",
-          characterLimit: 60,
-          isRequired: false,
-        },
-        {
-          id: "field-starter3-bg",
-          layerKey: "background_image",
-          type: "image",
-          role: "hero_image",
-          label: "Hero Background Visual",
-          promptInstruction: "Vibrant abstract or brand visual fill",
-          isRequired: false,
-        },
-        {
-          id: "field-starter3-logo",
-          layerKey: "brand_logo",
-          type: "image",
-          role: "brand_logo",
-          label: "Brand Logo / Avatar",
-          isRequired: false,
-        },
-      ],
-    },
-  },
-];
+export const STARTER_TEMPLATES: StarterTemplateConfig[] = [];
 
 // In-memory fallback if PostgreSQL is not active
 export const fallbackStore: {
@@ -251,7 +38,6 @@ export const fallbackStore: {
   templates: Array<{
     id: string;
     workspaceId: string;
-    brandKitId?: string;
     name: string;
     templatedTemplateId: string;
     previewImageUrl: string;
@@ -306,56 +92,9 @@ export const fallbackStore: {
     id: "00000000-0000-0000-0000-000000000001",
     name: "My Workspace",
     slug: DEFAULT_WORKSPACE_SLUG,
-    brandKits: [
-      {
-        id: "00000000-0000-0000-0000-000000000002",
-        workspaceId: "00000000-0000-0000-0000-000000000001",
-        name: "Default Brand Kit",
-        logoCloudinaryUrl: null,
-        primaryColor: "#0F172A",
-        secondaryColor: "#F8FAFC",
-        accentColor: "#00FF66",
-        fontFamily: "Inter",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    ],
   },
   templates: [],
-  workflows: [
-    {
-      id: "wf-default-1",
-      workspaceId: "00000000-0000-0000-0000-000000000001",
-      name: "Blog Article to LinkedIn Carousel Deck",
-      isActive: true,
-      sourcePlatform: "CUSTOM_URL",
-      sourceRssFeedUrl: null,
-      destinationPlatform: "LINKEDIN",
-      brandTemplateId: "tmpl_hook_square_01",
-      outputFormat: "MULTI_SLIDE_CAROUSEL",
-      backgroundStrategy: "ARTICLE_IMAGE_FIRST",
-      isAutopilot: false,
-      filterRules: { min_word_count: 150, keywords_include: [], keywords_exclude: [] },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: "wf-default-2",
-      workspaceId: "00000000-0000-0000-0000-000000000001",
-      name: "Viral Quote Card for Twitter / X",
-      isActive: true,
-      sourcePlatform: "BLOG_RSS",
-      sourceRssFeedUrl: "https://techcrunch.com/feed/",
-      destinationPlatform: "TWITTER_X",
-      brandTemplateId: "tmpl_quote_landscape_03",
-      outputFormat: "SINGLE_IMAGE_CARD",
-      backgroundStrategy: "STOCK_SEARCH_ONLY",
-      isAutopilot: false,
-      filterRules: { min_word_count: 200, keywords_include: [], keywords_exclude: [] },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  ],
+  workflows: [],
   drafts: [],
 };
 
@@ -389,6 +128,161 @@ export async function isDatabaseAvailable(): Promise<boolean> {
   }
 }
 
+export interface ResolvedUserWorkspace {
+  user: {
+    id: string;
+    clerkId: string;
+    email: string;
+    fullName: string;
+    avatarUrl: string | null;
+    isWhitelisted: boolean;
+  };
+  workspace: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+}
+
+/**
+ * Gets or creates a personalized workspace for a Clerk user.
+ */
+export async function getOrCreateUserWorkspace(clerkUser: {
+  id: string;
+  email: string;
+  fullName?: string | null;
+  avatarUrl?: string | null;
+}): Promise<ResolvedUserWorkspace> {
+  const isWhitelisted = isEmailWhitelisted(clerkUser.email);
+  const dbAvailable = await isDatabaseAvailable();
+
+  if (!dbAvailable) {
+    const mockUserId = `user-${clerkUser.id}`;
+    const mockWorkspaceId = `ws-${clerkUser.id}`;
+    return {
+      user: {
+        id: mockUserId,
+        clerkId: clerkUser.id,
+        email: clerkUser.email,
+        fullName: clerkUser.fullName || "Studio Creator",
+        avatarUrl: clerkUser.avatarUrl || null,
+        isWhitelisted,
+      },
+      workspace: {
+        id: mockWorkspaceId,
+        name: `${clerkUser.fullName || "My"} Workspace`,
+        slug: `ws-${clerkUser.id.slice(0, 12)}`,
+      },
+    };
+  }
+
+  try {
+    // 1. Find or create user
+    let user = await prisma.user.findFirst({
+      where: {
+        OR: [{ clerkId: clerkUser.id }, { email: clerkUser.email.toLowerCase() }],
+      },
+      include: {
+        memberships: {
+          include: {
+            workspace: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          clerkId: clerkUser.id,
+          email: clerkUser.email.toLowerCase(),
+          fullName: clerkUser.fullName || "Studio Creator",
+          avatarUrl: clerkUser.avatarUrl || null,
+          isWhitelisted,
+        },
+        include: {
+          memberships: {
+            include: {
+              workspace: true,
+            },
+          },
+        },
+      });
+    } else if (!user.clerkId || user.clerkId !== clerkUser.id) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          clerkId: clerkUser.id,
+          fullName: clerkUser.fullName || user.fullName,
+          avatarUrl: clerkUser.avatarUrl || user.avatarUrl,
+          isWhitelisted: user.isWhitelisted || isWhitelisted,
+        },
+        include: {
+          memberships: {
+            include: {
+              workspace: true,
+            },
+          },
+        },
+      });
+    }
+
+    // 2. Resolve or create user's workspace
+    let workspace = user.memberships[0]?.workspace;
+
+    if (!workspace) {
+      const slug = `ws-${clerkUser.id.slice(0, 8)}-${Date.now().toString(36)}`;
+      workspace = await prisma.workspace.create({
+        data: {
+          name: `${user.fullName || "My"} Workspace`,
+          slug,
+          members: {
+            create: {
+              userId: user.id,
+              role: "OWNER",
+            },
+          },
+        },
+      });
+    }
+
+    return {
+      user: {
+        id: user.id,
+        clerkId: clerkUser.id,
+        email: user.email,
+        fullName: user.fullName,
+        avatarUrl: user.avatarUrl,
+        isWhitelisted: user.isWhitelisted || isWhitelisted,
+      },
+      workspace: {
+        id: workspace.id,
+        name: workspace.name,
+        slug: workspace.slug,
+      },
+    };
+  } catch (error) {
+    console.error("[getOrCreateUserWorkspace Error]:", error);
+    const mockUserId = `user-${clerkUser.id}`;
+    const mockWorkspaceId = `ws-${clerkUser.id}`;
+    return {
+      user: {
+        id: mockUserId,
+        clerkId: clerkUser.id,
+        email: clerkUser.email,
+        fullName: clerkUser.fullName || "Studio Creator",
+        avatarUrl: clerkUser.avatarUrl || null,
+        isWhitelisted,
+      },
+      workspace: {
+        id: mockWorkspaceId,
+        name: `${clerkUser.fullName || "My"} Workspace`,
+        slug: `ws-${clerkUser.id.slice(0, 12)}`,
+      },
+    };
+  }
+}
+
 /**
  * Gets or creates the default workspace and user for single-tenant / development context.
  */
@@ -401,9 +295,6 @@ export async function getOrCreateDefaultWorkspace() {
   try {
     let workspace = await prisma.workspace.findUnique({
       where: { slug: DEFAULT_WORKSPACE_SLUG },
-      include: {
-        brandKits: true,
-      },
     });
 
     if (!workspace) {
@@ -413,6 +304,7 @@ export async function getOrCreateDefaultWorkspace() {
         create: {
           email: "founder@repurposemvp.local",
           fullName: "Workspace Owner",
+          isWhitelisted: true,
         },
       });
 
@@ -426,18 +318,6 @@ export async function getOrCreateDefaultWorkspace() {
               role: "OWNER",
             },
           },
-          brandKits: {
-            create: {
-              name: "Default Brand Kit",
-              primaryColor: "#0F172A",
-              secondaryColor: "#F8FAFC",
-              accentColor: "#00FF66",
-              fontFamily: "Inter",
-            },
-          },
-        },
-        include: {
-          brandKits: true,
         },
       });
     }
@@ -446,4 +326,50 @@ export async function getOrCreateDefaultWorkspace() {
   } catch {
     return fallbackStore.workspace;
   }
+}
+
+/**
+ * Resolves the authenticated user and their isolated workspace for the current request.
+ * Falls back to default workspace if no user is signed in (e.g. during local tests without auth).
+ */
+export async function getCurrentWorkspace(): Promise<ResolvedUserWorkspace> {
+  try {
+    const { currentUser } = await import("@clerk/nextjs/server");
+    const clerkUser = await currentUser();
+
+    if (clerkUser) {
+      const primaryEmail = clerkUser.emailAddresses?.find(
+        (e) => e.id === clerkUser.primaryEmailAddressId
+      )?.emailAddress || clerkUser.emailAddresses?.[0]?.emailAddress || "";
+
+      const fullName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || clerkUser.username || "Studio Creator";
+
+      return await getOrCreateUserWorkspace({
+        id: clerkUser.id,
+        email: primaryEmail,
+        fullName,
+        avatarUrl: clerkUser.imageUrl,
+      });
+    }
+  } catch (error) {
+    console.error("[getCurrentWorkspace Error]:", error);
+  }
+
+  // Fallback to default workspace for development or unauthenticated contexts
+  const defaultWs = await getOrCreateDefaultWorkspace();
+  return {
+    user: {
+      id: "00000000-0000-0000-0000-000000000001",
+      clerkId: "default-user",
+      email: "founder@repurposemvp.local",
+      fullName: "Workspace Owner",
+      avatarUrl: null,
+      isWhitelisted: true,
+    },
+    workspace: {
+      id: defaultWs.id,
+      name: defaultWs.name,
+      slug: defaultWs.slug,
+    },
+  };
 }

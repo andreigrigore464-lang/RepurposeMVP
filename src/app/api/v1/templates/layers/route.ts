@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getTemplatedTemplate, autoHeuristicLayerConfig, dynamicConfigToLegacyMappings } from "@/lib/templated";
+import { getTemplatedTemplate, autoHeuristicLayerConfig, dynamicConfigToLegacyMappings, isMockTemplate, MOCK_TEMPLATE_ID } from "@/lib/templated";
 
 // GET /api/v1/templates/layers?templateId=...
 // Inspects a template from Templated.io and returns parsed layers with rich metadata and auto-configured fields
@@ -10,6 +10,40 @@ export async function GET(req: Request) {
 
     if (!templateId) {
       return NextResponse.json({ error: "templateId query parameter is required" }, { status: 400 });
+    }
+
+    if (isMockTemplate(templateId)) {
+      const mockLayers = [
+        { key: "mock_headline", name: "mock_headline", type: "text" as const, layerType: "text", label: "mock_headline (Text)" },
+        { key: "mock_subheading", name: "mock_subheading", type: "text" as const, layerType: "text", label: "mock_subheading (Text)" },
+        { key: "mock_body", name: "mock_body", type: "text" as const, layerType: "text", label: "mock_body (Text)" },
+        { key: "mock_takeaway", name: "mock_takeaway", type: "text" as const, layerType: "text", label: "mock_takeaway (Text)" },
+        { key: "mock_statistic", name: "mock_statistic", type: "text" as const, layerType: "text", label: "mock_statistic (Text)" },
+        { key: "mock_quote", name: "mock_quote", type: "text" as const, layerType: "text", label: "mock_quote (Text)" },
+        { key: "mock_cta", name: "mock_cta", type: "text" as const, layerType: "text", label: "mock_cta (Text)" },
+        { key: "mock_counter", name: "mock_counter", type: "counter" as const, layerType: "counter", label: "mock_counter (Counter)" },
+        { key: "mock_hero_image", name: "mock_hero_image", type: "image" as const, layerType: "image", label: "mock_hero_image (Image)" },
+        { key: "mock_secondary_image_1", name: "mock_secondary_image_1", type: "image" as const, layerType: "image", label: "mock_secondary_image_1 (Image)" },
+        { key: "mock_secondary_image_2", name: "mock_secondary_image_2", type: "image" as const, layerType: "image", label: "mock_secondary_image_2 (Image)" },
+        { key: "mock_secondary_image_3", name: "mock_secondary_image_3", type: "image" as const, layerType: "image", label: "mock_secondary_image_3 (Image)" },
+        { key: "mock_brand_logo", name: "mock_brand_logo", type: "image" as const, layerType: "image", label: "mock_brand_logo (Image)" },
+      ];
+
+      return NextResponse.json({
+        success: true,
+        templateId: MOCK_TEMPLATE_ID,
+        templateName: "Mock Simulation (0 Credits)",
+        isMock: true,
+        textLayers: mockLayers.filter((l) => l.type === "text" || l.type === "counter"),
+        imageLayers: mockLayers.filter((l) => l.type === "image"),
+        allLayers: mockLayers,
+        autoConfig: {
+          version: 2,
+          isConfigured: false,
+          fields: [], // No pre-configured slides
+        },
+        suggestedMappings: {},
+      });
     }
 
     const templateData = await getTemplatedTemplate(templateId);

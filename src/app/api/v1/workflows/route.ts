@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getOrCreateDefaultWorkspace, fallbackStore, STARTER_TEMPLATES, isDatabaseAvailable } from "@/lib/workspace";
+import { getCurrentWorkspace, fallbackStore, isDatabaseAvailable } from "@/lib/workspace";
 
 // GET /api/v1/workflows
 export async function GET(req: Request) {
@@ -8,8 +8,8 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const requestedWorkspaceId = searchParams.get("workspaceId");
 
-    const defaultWorkspace = await getOrCreateDefaultWorkspace();
-    const workspaceId = requestedWorkspaceId || defaultWorkspace.id;
+    const userSession = await getCurrentWorkspace();
+    const workspaceId = requestedWorkspaceId || userSession.workspace.id;
 
     const dbOnline = await isDatabaseAvailable();
     if (!dbOnline) {
@@ -45,8 +45,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const defaultWorkspace = await getOrCreateDefaultWorkspace();
-    const workspaceId = body.workspaceId || defaultWorkspace.id;
+    const userSession = await getCurrentWorkspace();
+    const workspaceId = body.workspaceId || userSession.workspace.id;
 
     const {
       id,
@@ -72,6 +72,7 @@ export async function POST(req: Request) {
         try {
           const existingTmpl = await prisma.brandTemplate.findFirst({
             where: {
+              workspaceId,
               OR: [
                 { id: brandTemplateId },
                 { templatedTemplateId: brandTemplateId },
@@ -80,27 +81,9 @@ export async function POST(req: Request) {
           });
           if (existingTmpl) {
             resolvedBrandTemplateUuid = existingTmpl.id;
-          } else {
-            const starter = STARTER_TEMPLATES.find(
-              (s) => s.id === brandTemplateId || s.templatedTemplateId === brandTemplateId
-            );
-            if (starter) {
-              const createdTmpl = await prisma.brandTemplate.create({
-                data: {
-                  workspaceId,
-                  name: starter.name,
-                  templatedTemplateId: starter.templatedTemplateId,
-                  previewImageUrl: starter.previewImageUrl,
-                  aspectRatio: starter.aspectRatio,
-                  hasBackgroundPlaceholder: starter.hasBackgroundPlaceholder,
-                  layerMappings: starter.layerMappings,
-                },
-              });
-              resolvedBrandTemplateUuid = createdTmpl.id;
-            }
           }
         } catch {
-          // If query fails (e.g. invalid UUID format search on id), fall back gracefully
+          // If query fails, fall back gracefully
         }
       }
 

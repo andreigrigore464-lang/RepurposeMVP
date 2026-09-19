@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getOrCreateDefaultWorkspace, fallbackStore, isDatabaseAvailable } from "@/lib/workspace";
+import { getCurrentWorkspace, fallbackStore, isDatabaseAvailable } from "@/lib/workspace";
 
 // GET /api/v1/inbox
 export async function GET(req: Request) {
@@ -8,8 +8,8 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const requestedWorkspaceId = searchParams.get("workspaceId");
 
-    const defaultWorkspace = await getOrCreateDefaultWorkspace();
-    const workspaceId = requestedWorkspaceId || defaultWorkspace.id;
+    const userSession = await getCurrentWorkspace();
+    const workspaceId = requestedWorkspaceId || userSession.workspace.id;
 
     const dbOnline = await isDatabaseAvailable();
     if (!dbOnline) {

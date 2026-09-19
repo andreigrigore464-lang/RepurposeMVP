@@ -40,6 +40,8 @@ import {
   isTemplateConfigured,
   dynamicConfigToLegacyMappings,
   TemplatedLayer,
+  isMockTemplate,
+  MOCK_TEMPLATE_ID,
 } from "@/lib/templated";
 
 interface BrandTemplate {
@@ -51,6 +53,7 @@ interface BrandTemplate {
   aspectRatio: string;
   hasBackgroundPlaceholder: boolean;
   isConfigured: boolean;
+  isMock?: boolean;
   layerMappings?: Record<string, string>;
   dynamicConfig?: DynamicTemplateConfig;
   createdAt: string;
@@ -216,6 +219,7 @@ function TemplatesContent() {
   const [selectedRatio, setSelectedRatio] = useState<string>("ALL");
   const [toastMessage, setToastMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
   const [templateToDelete, setTemplateToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [refreshingPreviewId, setRefreshingPreviewId] = useState<string | null>(null);
 
   const showToast = useCallback((text: string, type: "success" | "error" | "info" = "success") => {
     setToastMessage({ text, type });
@@ -223,6 +227,30 @@ function TemplatesContent() {
       setToastMessage((prev) => (prev?.text === text ? null : prev));
     }, 3500);
   }, []);
+
+  const handleRefreshPreview = async (templatedTemplateId: string) => {
+    try {
+      setRefreshingPreviewId(templatedTemplateId);
+      const res = await fetch("/api/v1/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "refresh_preview",
+          templatedTemplateId,
+        }),
+      });
+      if (res.ok) {
+        await fetchTemplates(false);
+        showToast("Live canvas preview refreshed!");
+      } else {
+        showToast("Failed to refresh live preview", "error");
+      }
+    } catch {
+      showToast("Error refreshing live preview", "error");
+    } finally {
+      setRefreshingPreviewId(null);
+    }
+  };
 
   const [formData, setFormData] = useState<{
     id?: string;
@@ -264,7 +292,18 @@ function TemplatesContent() {
         }
         setModalLayers(detectedLayers);
 
-        if (!initialConfig || !initialConfig.fields || initialConfig.fields.length === 0) {
+        const isMock = isMockTemplate(templateId);
+        if (isMock) {
+          const activeOnly = (initialConfig?.fields || []).filter((f) => f.role !== "none");
+          setFormData((prev) => ({
+            ...prev,
+            dynamicConfig: {
+              version: 2,
+              isConfigured: activeOnly.length > 0,
+              fields: activeOnly,
+            },
+          }));
+        } else if (!initialConfig || !initialConfig.fields || initialConfig.fields.length === 0) {
           const auto = data.autoConfig || autoHeuristicLayerConfig(detectedLayers);
           const activeOnly = auto.fields.filter((f: TemplateFieldConfig) => f.role !== "none");
           setFormData((prev) => ({
@@ -338,8 +377,8 @@ function TemplatesContent() {
   const fetchTemplates = useCallback(async (sync = false) => {
     try {
       if (sync) setIsSyncing(true);
-      const url = sync ? "/api/v1/templates?sync=true" : "/api/v1/templates";
-      const res = await fetch(url);
+      const url = sync ? `/api/v1/templates?sync=true&t=${Date.now()}` : `/api/v1/templates?t=${Date.now()}`;
+      const res = await fetch(url, { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         setTemplates(data.templates || []);
@@ -479,15 +518,30 @@ function TemplatesContent() {
   const handleAddAttribute = (attr: typeof AVAILABLE_ATTRIBUTES[number]) => {
     setIsAddMenuOpen(false);
 
-    const matchingLayer = modalLayers.find((l) => {
-      if (attr.type === "image") return l.type === "image";
-      return l.type === "text" || !l.type;
-    });
+    const isMock = isMockTemplate(formData.templatedTemplateId);
+    let assignedLayerKey = "";
+
+    if (isMock) {
+      const existingSameRoleCount = formData.dynamicConfig.fields.filter((f) => f.role === attr.role).length;
+      if (attr.role === "custom") {
+        const totalCustom = formData.dynamicConfig.fields.filter((f) => f.role === "custom").length;
+        assignedLayerKey = `mock_custom_${totalCustom + 1}`;
+      } else {
+        assignedLayerKey = existingSameRoleCount === 0 ? `mock_${attr.role}` : `mock_${attr.role}_${existingSameRoleCount + 1}`;
+      }
+    } else {
+      const matchingLayer = modalLayers.find((l) => {
+        if (attr.type === "image") return l.type === "image";
+        return l.type === "text" || !l.type;
+      });
+      const isCustom = attr.role === "custom";
+      assignedLayerKey = matchingLayer?.key || modalLayers[0]?.key || (isCustom ? "custom_layer" : `${attr.role}_layer`);
+    }
 
     const isCustom = attr.role === "custom";
     const newField: TemplateFieldConfig = {
       id: `field-${attr.role}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-      layerKey: matchingLayer?.key || modalLayers[0]?.key || (isCustom ? "custom_layer" : `${attr.role}_layer`),
+      layerKey: assignedLayerKey,
       type: attr.type,
       role: attr.role,
       label: isCustom ? "Custom Attribute" : attr.label,
@@ -568,7 +622,7 @@ function TemplatesContent() {
           version: 2,
           isConfigured: true,
         },
-        layerMappings: dynamicConfigToLegacyMappings(formData.dynamicConfig),
+        layerMappings: formData.dynamicConfig,
       };
 
       const res = await fetch("/api/v1/templates", {
@@ -865,6 +919,7 @@ function TemplatesContent() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredTemplates.map((template) => {
+              const isMock = template.isMock || isMockTemplate(template.templatedTemplateId);
               const dyn = normalizeTemplateConfig(template.dynamicConfig || template.layerMappings);
               const activeLayers = dyn.fields.filter((f) => f.role !== "none" && f.layerKey);
               const configured = isTemplateConfigured(template) || isTemplateConfigured(dyn);
@@ -872,39 +927,75 @@ function TemplatesContent() {
               return (
                 <div
                   key={template.id}
-                  className="group rounded-3xl glass-panel hover:border-blue-500/40 transition-all duration-300 overflow-hidden shadow-lg flex flex-col justify-between"
+                  className={`group rounded-3xl transition-all duration-300 overflow-hidden shadow-lg flex flex-col justify-between ${
+                    isMock
+                      ? "glass-panel border-2 border-dashed border-cyan-500/50 bg-gradient-to-b from-cyan-950/20 via-transparent to-[#0e1017] hover:border-cyan-400"
+                      : "glass-panel hover:border-blue-500/40"
+                  }`}
                 >
                   {/* Card Thumbnail / Preview */}
-                  <div className="relative aspect-video bg-[#050608] overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={template.previewImageUrl}
-                      alt={template.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#08090d] via-transparent to-black/30" />
-
-                    {/* Aspect Ratio Tag */}
-                    <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full glass-pill text-[11px] font-mono font-medium text-white shadow-md">
-                      <Ratio className="w-3 h-3 text-cyan-400" />
-                      <span>{template.aspectRatio}</span>
-                    </div>
-
-                    {/* Ready Status */}
-                    <div className="absolute top-3 right-3">
-                      {configured ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold backdrop-blur-md shadow-sm">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>Ready</span>
+                  {isMock ? (
+                    <div className="relative aspect-video bg-[#070b14] overflow-hidden flex flex-col items-center justify-center p-4 border-b border-cyan-500/20">
+                      <div className="absolute inset-0 bg-[linear-gradient(to_right,#00ffff0a_1px,transparent_1px),linear-gradient(to_bottom,#00ffff0a_1px,transparent_1px)] bg-[size:16px_16px]" />
+                      <div className="relative z-10 space-y-1.5 flex flex-col items-center text-center">
+                        <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 shadow-inner">
+                          <SlidersHorizontal className="w-5 h-5 text-cyan-400" />
+                        </div>
+                        <span className="text-xs font-bold text-cyan-300 font-mono tracking-wider">
+                          SIMULATION BLUEPRINT
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[10px] font-bold backdrop-blur-md shadow-sm">
-                          <AlertCircle className="w-3 h-3" />
-                          <span>Needs Setup</span>
+                        <span className="text-[10px] text-slate-400 font-sans">
+                          No Canvas Preview • 0 Templated Credits
                         </span>
-                      )}
+                      </div>
+
+                      {/* Aspect Ratio Tag */}
+                      <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full glass-pill text-[11px] font-mono font-medium text-white shadow-md">
+                        <Ratio className="w-3 h-3 text-cyan-400" />
+                        <span>{template.aspectRatio}</span>
+                      </div>
+
+                      {/* Mock Tag */}
+                      <div className="absolute top-3 right-3">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[10px] font-bold backdrop-blur-md shadow-sm font-mono">
+                          <Sparkles className="w-3 h-3 text-cyan-300" />
+                          <span>Simulation (0 Credits)</span>
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="relative aspect-video bg-[#050608] overflow-hidden">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        key={template.previewImageUrl}
+                        src={template.previewImageUrl}
+                        alt={template.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#08090d] via-transparent to-black/30" />
+
+                      {/* Aspect Ratio Tag */}
+                      <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full glass-pill text-[11px] font-mono font-medium text-white shadow-md">
+                        <Ratio className="w-3 h-3 text-cyan-400" />
+                        <span>{template.aspectRatio}</span>
+                      </div>
+
+                      {/* Ready Status */}
+                      <div className="absolute top-3 right-3">
+                        {configured ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold backdrop-blur-md shadow-sm">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Ready</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[10px] font-bold backdrop-blur-md shadow-sm">
+                            <AlertCircle className="w-3 h-3" />
+                            <span>Needs Setup</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Card Body */}
                   <div className="p-5 space-y-4 flex-1 flex flex-col justify-between">
@@ -924,8 +1015,8 @@ function TemplatesContent() {
                       </span>
                       <div className="flex flex-wrap gap-1.5">
                         {activeLayers.length === 0 ? (
-                          <span className="text-xs text-rose-400/90 italic font-sans">
-                            No functions mapped yet
+                          <span className="text-xs text-slate-400/90 italic font-sans">
+                            {isMock ? "No mock fields mapped yet" : "No functions mapped yet"}
                           </span>
                         ) : (
                           activeLayers.slice(0, 4).map((f, idx) => (
@@ -958,41 +1049,56 @@ function TemplatesContent() {
                       type="button"
                       onClick={() => handleOpenEditModal(template)}
                       className={`w-full py-2.5 px-4 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md ${
-                        configured
+                        configured || isMock
                           ? "bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white shadow-blue-500/20"
                           : "bg-rose-600/90 hover:bg-rose-500 text-white shadow-rose-500/20"
                       }`}
                     >
                       <SlidersHorizontal className="w-4 h-4" />
-                      <span>{configured ? "Configure Layer Mappings" : "Configure Layers (Required)"}</span>
+                      <span>{configured ? "Configure Layer Mappings" : isMock ? "Configure Mock Fields" : "Configure Layers (Required)"}</span>
                     </button>
 
-                    {/* Action Buttons */}
-                    <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
-                      <button
-                        onClick={() => handleOpenEmbedStudio(template.templatedTemplateId, "studio", false)}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl glass-pill hover:bg-white/10 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
-                      >
-                        <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Canvas Studio</span>
-                      </button>
+                    {/* Action Buttons (Only for real Templated.io templates, NEVER for mock template) */}
+                    {!isMock && (
+                      <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => handleOpenEmbedStudio(template.templatedTemplateId, "studio", false)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl glass-pill hover:bg-white/10 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Canvas Studio</span>
+                        </button>
 
-                      <button
-                        onClick={() => handleOpenEmbedStudio(template.templatedTemplateId, "preview", false)}
-                        className="p-2 rounded-xl glass-pill hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
-                        title="Live Preview"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
+                        <button
+                          onClick={() => handleRefreshPreview(template.templatedTemplateId)}
+                          disabled={refreshingPreviewId === template.templatedTemplateId}
+                          className="p-2 rounded-xl glass-pill hover:bg-white/10 text-slate-400 hover:text-cyan-300 transition-colors cursor-pointer"
+                          title="Refresh Live Canvas Preview"
+                        >
+                          <RefreshCw
+                            className={`w-4 h-4 ${
+                              refreshingPreviewId === template.templatedTemplateId ? "animate-spin text-cyan-400" : ""
+                            }`}
+                          />
+                        </button>
 
-                      <button
-                        onClick={() => setTemplateToDelete({ id: template.id, name: template.name })}
-                        className="p-2 rounded-xl glass-pill hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
-                        title="Delete Template"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                        <button
+                          onClick={() => handleOpenEmbedStudio(template.templatedTemplateId, "preview", false)}
+                          className="p-2 rounded-xl glass-pill hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                          title="Live Preview"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          onClick={() => setTemplateToDelete({ id: template.id, name: template.name })}
+                          className="p-2 rounded-xl glass-pill hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                          title="Delete Template"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -1170,19 +1276,36 @@ function TemplatesContent() {
                       </span>
                     </div>
 
-                    <div className="relative rounded-xl overflow-hidden aspect-video bg-black/40 border border-white/10 shadow-inner">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={formData.previewImageUrl}
-                        alt="Canvas Preview"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
+                    {isMockTemplate(formData.templatedTemplateId) ? (
+                      <div className="relative rounded-xl overflow-hidden aspect-video bg-[#070b14] border border-cyan-500/30 flex flex-col items-center justify-center p-4 text-center shadow-inner">
+                        <div className="absolute inset-0 bg-[linear-gradient(to_right,#00ffff0a_1px,transparent_1px),linear-gradient(to_bottom,#00ffff0a_1px,transparent_1px)] bg-[size:16px_16px]" />
+                        <div className="relative z-10 space-y-1.5 flex flex-col items-center">
+                          <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300">
+                            <SlidersHorizontal className="w-5 h-5 text-cyan-400" />
+                          </div>
+                          <span className="text-xs font-bold text-cyan-300 font-mono tracking-wider">
+                            MOCK SIMULATION MODE
+                          </span>
+                          <p className="text-[10px] text-slate-400 leading-relaxed max-w-xs font-sans">
+                            Zero-credit workflow testing. Resolved images replace slide graphics, and all synthesized text fields are output into the description.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative rounded-xl overflow-hidden aspect-video bg-black/40 border border-white/10 shadow-inner">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={formData.previewImageUrl}
+                          alt="Canvas Preview"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
 
                     {/* Detected Canvas Layer Tags */}
                     <div className="pt-2 border-t border-white/[0.06] space-y-1.5">
                       <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                        <span>Detected Canvas Layers:</span>
+                        <span>{isMockTemplate(formData.templatedTemplateId) ? "Mock Layers Pool:" : "Detected Canvas Layers:"}</span>
                         <span className="text-cyan-300 font-semibold">{modalLayers.length} total</span>
                       </div>
                       <div className="flex flex-wrap gap-1 max-h-[100px] overflow-y-auto">
@@ -1437,9 +1560,12 @@ function TemplatesContent() {
             ? undefined
             : activeEmbedTemplateId
         }
-        onClose={() => setIsEmbedOpen(false)}
+        onClose={() => {
+          setIsEmbedOpen(false);
+          fetchTemplates(true);
+        }}
         onSaveSuccess={() => {
-          fetchTemplates(false);
+          fetchTemplates(true);
         }}
       />
     </div>

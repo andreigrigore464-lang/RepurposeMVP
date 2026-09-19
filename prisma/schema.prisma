@@ -70,12 +70,14 @@ enum ExecutionStatus {
 
 // 1. Users Model
 model User {
-  id        String   @id @default(uuid()) @db.Uuid
-  email     String   @unique @db.VarChar(255)
-  fullName  String   @map("full_name") @db.VarChar(255)
-  avatarUrl String?  @map("avatar_url")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id            String   @id @default(uuid()) @db.Uuid
+  clerkId       String?  @unique @map("clerk_id") @db.VarChar(255)
+  email         String   @unique @db.VarChar(255)
+  fullName      String   @map("full_name") @db.VarChar(255)
+  avatarUrl     String?  @map("avatar_url")
+  isWhitelisted Boolean  @default(false) @map("is_whitelisted")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   // Relations
   memberships WorkspaceMember[]
@@ -95,7 +97,6 @@ model Workspace {
 
   // Relations
   members            WorkspaceMember[]
-  brandKits          BrandKit[]
   brandTemplates     BrandTemplate[]
   integrations       Integration[]
   workflows          Workflow[]
@@ -122,31 +123,10 @@ model WorkspaceMember {
   @@map("workspace_members")
 }
 
-// 4. Brand Kits Model
-model BrandKit {
-  id                String   @id @default(uuid()) @db.Uuid
-  workspaceId       String   @map("workspace_id") @db.Uuid
-  name              String   @default("Default Brand Kit") @db.VarChar(255)
-  logoCloudinaryUrl String?  @map("logo_cloudinary_url")
-  primaryColor      String   @default("#000000") @map("primary_color") @db.VarChar(20)
-  secondaryColor    String   @default("#FFFFFF") @map("secondary_color") @db.VarChar(20)
-  accentColor       String   @default("#00FF66") @map("accent_color") @db.VarChar(20)
-  fontFamily        String   @default("Inter") @map("font_family") @db.VarChar(100)
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // Relations
-  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  brandTemplates BrandTemplate[]
-
-  @@map("brand_kits")
-}
-
-// 5. Brand Templates Model (Templated.io Integration)
+// 4. Brand Templates Model (Templated.io Integration)
 model BrandTemplate {
   id                       String   @id @default(uuid()) @db.Uuid
   workspaceId              String   @map("workspace_id") @db.Uuid
-  brandKitId               String?  @map("brand_kit_id") @db.Uuid
   name                     String   @db.VarChar(255)
   templatedTemplateId      String   @map("templated_template_id") @db.VarChar(255)
   previewImageUrl          String   @map("preview_image_url")
@@ -158,7 +138,6 @@ model BrandTemplate {
 
   // Relations
   workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  brandKit  BrandKit?  @relation(fields: [brandKitId], references: [id], onDelete: SetNull)
   workflows Workflow[]
 
   @@map("brand_templates")

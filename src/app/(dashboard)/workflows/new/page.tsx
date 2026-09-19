@@ -24,7 +24,7 @@ import {
   AlertCircle,
   SlidersHorizontal,
 } from "lucide-react";
-import { isTemplateConfigured, DynamicTemplateConfig } from "@/lib/templated";
+import { isTemplateConfigured, DynamicTemplateConfig, isMockTemplate } from "@/lib/templated";
 
 function LinkedinIcon({ className }: { className?: string }) {
   return (
@@ -752,7 +752,8 @@ export default function NewWorkflowPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {allAvailableTemplates.map((tmpl) => {
                     const isSelected = brandTemplateId === tmpl.templatedTemplateId;
-                    const isConfig = isTemplateConfigured(tmpl);
+                    const isMock = isMockTemplate(tmpl.templatedTemplateId);
+                    const isConfig = isTemplateConfigured(tmpl) || isMock;
 
                     return (
                       <div
@@ -761,31 +762,50 @@ export default function NewWorkflowPage() {
                         className={`relative p-3 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between space-y-3 ${
                           isSelected
                             ? "bg-blue-950/40 border-blue-500 ring-2 ring-blue-500/20 shadow-lg"
+                            : isMock
+                            ? "bg-cyan-950/20 border-dashed border-cyan-500/40 hover:border-cyan-400"
                             : isConfig
                             ? "bg-white/[0.02] border-white/[0.08] hover:border-white/[0.15]"
                             : "bg-rose-950/10 border-rose-500/30 hover:border-rose-500/50"
                         }`}
                       >
                         <div className="relative aspect-video rounded-xl overflow-hidden bg-[#050608] border border-white/10">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={tmpl.previewImageUrl}
-                            alt={tmpl.name}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              const target = e.currentTarget as HTMLImageElement;
-                              if (!target.src.includes("templated-assets")) {
-                                target.src = `https://templated-assets.s3.amazonaws.com/public/thumbnail/${tmpl.templatedTemplateId}.webp`;
-                              }
-                            }}
-                          />
+                          {isMock ? (
+                            <div className="w-full h-full bg-[#070b14] flex flex-col items-center justify-center p-3 text-center relative overflow-hidden">
+                              <div className="absolute inset-0 bg-[linear-gradient(to_right,#00ffff0a_1px,transparent_1px),linear-gradient(to_bottom,#00ffff0a_1px,transparent_1px)] bg-[size:12px_12px]" />
+                              <div className="relative z-10 space-y-1 flex flex-col items-center">
+                                <SlidersHorizontal className="w-5 h-5 text-cyan-400" />
+                                <span className="text-[11px] font-bold text-cyan-300 font-mono">
+                                  SIMULATION (0 CREDITS)
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={tmpl.previewImageUrl}
+                              alt={tmpl.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                const target = e.currentTarget as HTMLImageElement;
+                                if (!target.src.includes("templated-assets")) {
+                                  target.src = `https://templated-assets.s3.amazonaws.com/public/thumbnail/${tmpl.templatedTemplateId}.webp`;
+                                }
+                              }}
+                            />
+                          )}
                           <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-bold glass-pill text-white shadow-sm font-mono">
                             {tmpl.aspectRatio}
                           </span>
 
                           {/* Configured Status Badge */}
                           <div className="absolute bottom-2 left-2">
-                            {isConfig ? (
+                            {isMock ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-cyan-500/30 border border-cyan-500/50 text-cyan-300 text-[10px] font-bold shadow-md backdrop-blur-sm font-mono">
+                                <Sparkles className="w-3 h-3 text-cyan-300" />
+                                Zero Credits
+                              </span>
+                            ) : isConfig ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/90 text-emerald-950 text-[10px] font-bold shadow-md backdrop-blur-sm">
                                 <Check className="w-3 h-3 stroke-[3]" />
                                 Configured

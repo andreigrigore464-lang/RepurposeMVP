@@ -9,7 +9,7 @@ import {
 import prisma from "@/lib/prisma";
 
 export interface BatchRenderOptions {
-  brandKitLogoUrl?: string | null;
+  logoUrl?: string | null;
   backgroundImageUrl?: string | null;
   externalId?: string;
   customLayerMappings?: {
@@ -256,7 +256,7 @@ export async function renderCarouselSlides(
   options: BatchRenderOptions = {}
 ): Promise<RenderedSlideResult[]> {
   const {
-    brandKitLogoUrl,
+    logoUrl,
     backgroundImageUrl,
     externalId,
     customLayerMappings,
@@ -288,8 +288,8 @@ export async function renderCarouselSlides(
     if (bgImageLayerName && slideBgUrl) {
       layersPayload[bgImageLayerName] = { image_url: slideBgUrl };
     }
-    if (logoLayerName && brandKitLogoUrl) {
-      layersPayload[logoLayerName] = { image_url: brandKitLogoUrl };
+    if (logoLayerName && logoUrl) {
+      layersPayload[logoLayerName] = { image_url: logoUrl };
     }
     if (counterLayerName) {
       layersPayload[counterLayerName] = { text: `${slide.slide_index} / ${totalSlides}` };

@@ -150,8 +150,106 @@ export async function resolveBackgroundImage(options: ResolveImageOptions): Prom
   return applySmartCropTransformation(CURATED_STOCK_COLLECTION[randomIndex], { aspectRatio });
 }
 
+export interface ResolveMultipleImagesOptions {
+  count: number;
+  strategy: BackgroundImageStrategy;
+  articleImages?: string[];
+  visualKeywords?: string[];
+  aspectRatio?: string;
+}
+
+/**
+ * Resolves an exact requested count of distinct images based on the chosen strategy:
+ * - ARTICLE_IMAGE_FIRST: Uses in-article photos first, then fills any missing slots with Unsplash / curated stock photos.
+ * - STOCK_SEARCH_ONLY: Fetches distinct contextual stock photos from Unsplash for every slot.
+ */
+export async function resolveMultipleImages(
+  options: ResolveMultipleImagesOptions
+): Promise<string[]> {
+  const {
+    count,
+    strategy,
+    articleImages = [],
+    visualKeywords = [],
+    aspectRatio = "1:1",
+  } = options;
+
+  if (count <= 0) return [];
+
+  const orientation =
+    aspectRatio === "4:5" || aspectRatio === "9:16"
+      ? "portrait"
+      : aspectRatio === "16:9"
+      ? "landscape"
+      : "squarish";
+
+  const resolved: string[] = [];
+  const usedUrls = new Set<string>();
+
+  // 1. Article Images First Strategy
+  if (strategy === "ARTICLE_IMAGE_FIRST") {
+    for (const rawUrl of articleImages) {
+      if (!rawUrl || usedUrls.has(rawUrl)) continue;
+      try {
+        const cropped = await uploadToCloudinary(rawUrl, "repurpose_articles", {
+          smartCrop: true,
+          aspectRatio,
+        });
+        resolved.push(cropped);
+        usedUrls.add(rawUrl);
+      } catch {
+        const fallback = applySmartCropTransformation(rawUrl, { aspectRatio });
+        resolved.push(fallback);
+        usedUrls.add(rawUrl);
+      }
+      if (resolved.length >= count) break;
+    }
+  }
+
+  // 2. If more images are needed (or if STOCK_SEARCH_ONLY), fetch from Unsplash
+  if (resolved.length < count && strategy !== "SOLID_COLOR_ONLY" && strategy !== "DISABLED") {
+    const needed = count - resolved.length;
+
+    // Try fetching batch photos with visual keywords
+    const keywordsList = visualKeywords.length > 0 ? visualKeywords : ["modern technology", "abstract minimal", "business growth"];
+    
+    for (let i = 0; i < needed; i++) {
+      const kw = keywordsList[i % keywordsList.length] || keywordsList[0];
+      const stockPhotoUrl = await fetchUnsplashPhoto(kw, orientation);
+      if (stockPhotoUrl && !usedUrls.has(stockPhotoUrl)) {
+        try {
+          const cropped = await uploadToCloudinary(stockPhotoUrl, "repurpose_stock", {
+            smartCrop: true,
+            aspectRatio,
+          });
+          resolved.push(cropped);
+          usedUrls.add(stockPhotoUrl);
+        } catch {
+          const fallback = applySmartCropTransformation(stockPhotoUrl, { aspectRatio });
+          resolved.push(fallback);
+          usedUrls.add(stockPhotoUrl);
+        }
+      }
+    }
+  }
+
+  // 3. Fallback to Curated Stock Collection if still short
+  let curIndex = 0;
+  while (resolved.length < count) {
+    const fallbackUrl = CURATED_STOCK_COLLECTION[curIndex % CURATED_STOCK_COLLECTION.length];
+    const transformed = applySmartCropTransformation(fallbackUrl, { aspectRatio });
+    if (!resolved.includes(transformed) || resolved.length >= CURATED_STOCK_COLLECTION.length) {
+      resolved.push(transformed);
+    }
+    curIndex++;
+  }
+
+  return resolved.slice(0, count);
+}
+
 /**
  * Searches Unsplash API for a high-resolution photo matching keywords and orientation.
+ * Gracefully tries specific individual keywords if multi-word queries return 0 results.
  */
 async function fetchUnsplashPhoto(query: string, orientation = "squarish"): Promise<string | null> {
   const accessKey = process.env.UNSPLASH_ACCESS_KEY;
@@ -159,33 +257,43 @@ async function fetchUnsplashPhoto(query: string, orientation = "squarish"): Prom
     return null;
   }
 
-  try {
-    const encodedQuery = encodeURIComponent(query);
-    const res = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodedQuery}&per_page=1&orientation=${orientation}`,
-      {
-        headers: {
-          Authorization: `Client-ID ${accessKey}`,
-          "Accept-Version": "v1",
-        },
-        signal: AbortSignal.timeout(5000),
+  const searchTerms = [
+    query.trim(),
+    query.split(" ").slice(0, 2).join(" ").trim(),
+    query.split(" ")[0]?.trim(),
+    "minimal abstract background",
+  ].filter(Boolean);
+
+  for (const term of searchTerms) {
+    try {
+      const encodedQuery = encodeURIComponent(term);
+      const res = await fetch(
+        `https://api.unsplash.com/search/photos?query=${encodedQuery}&per_page=3&orientation=${orientation}`,
+        {
+          headers: {
+            Authorization: `Client-ID ${accessKey}`,
+            "Accept-Version": "v1",
+          },
+          signal: AbortSignal.timeout(5000),
+        }
+      );
+
+      if (!res.ok) {
+        continue;
       }
-    );
 
-    if (!res.ok) {
-      console.warn(`[ImageResolver] Unsplash API returned status ${res.status}`);
-      return null;
+      const data = await res.json();
+      const results = Array.isArray(data.results) ? data.results : [];
+      if (results.length > 0) {
+        const randomIndex = Math.floor(Math.random() * Math.min(results.length, 3));
+        const picked = results[randomIndex]?.urls;
+        const pickedUrl = picked?.regular || picked?.full || picked?.small || null;
+        if (pickedUrl) return pickedUrl;
+      }
+    } catch {
+      // Continue to next search term
     }
-
-    const data = await res.json();
-    const firstResult = data.results?.[0];
-    if (firstResult && firstResult.urls) {
-      return firstResult.urls.regular || firstResult.urls.full || firstResult.urls.small || null;
-    }
-
-    return null;
-  } catch (error) {
-    console.warn("[ImageResolver] Unsplash search failed:", error);
-    return null;
   }
+
+  return null;
 }
