@@ -45,13 +45,3 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) to view the application.
 
-## SDD Specification Reference
-Specifications are located in `D:\Work\AI\Specs\Gemini`:
-- `00_OVERVIEW_AND_SYSTEM_ARCHITECTURE.md` - System Architecture & Modular Monolith Topology
-- `01_DOMAIN_MODEL_AND_DATA_SCHEMAS.md` - Domain Model & PostgreSQL Schemas
-- `02_INTEGRATIONS_AND_OAUTH_ENGINE.md` - Integrations & Connectors
-- `03_WORKFLOWS_AND_AUTOMATION_ENGINE.md` - Workflow Engine & Density Guard
-- `05_AI_ENHANCEMENT_AND_METADATA_ENGINE.md` - Gemini AI Prompt Chains & Schemas
-- `07_FRONTEND_AND_UI_UX_SPEC.md` - UI/UX & Studio Quick-Editor
-- `09_TEMPLATED_CLOUDINARY_AND_FORMAT_MATRIX.md` - Templated.io & Cloudinary Pipelines
-- `11_TASK_BOARD_AND_GIT_WORKFLOW.md` - Task Board & Execution Plan
